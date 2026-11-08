@@ -3882,7 +3882,7 @@ export function TeacherReviewTab({
           return;
         }
       }
-      if (!cancelled) timer = setTimeout(recover, 5000);
+      timer = setTimeout(recover, 5000);
     }
     recover();
     return () => {

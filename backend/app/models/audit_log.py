@@ -93,6 +93,7 @@ class AuditAction(str, enum.Enum):
     firewall_rule_create = "firewall_rule_create"
     firewall_rule_update = "firewall_rule_update"
     firewall_rule_delete = "firewall_rule_delete"
+    reverse_proxy_rule_update = "reverse_proxy_rule_update"
     reverse_proxy_rule_delete = "reverse_proxy_rule_delete"
     reverse_proxy_rule_sync = "reverse_proxy_rule_sync"
 

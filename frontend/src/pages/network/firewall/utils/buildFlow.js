@@ -147,6 +147,21 @@ export function describePort(port) {
   return name ? `${name} (${port.port})` : `${port.port}/${proto}`;
 }
 
+/**
+ * 切換收錄成功後就地改掉面板上的那條網址（細節面板拿的是點選當下的連線快照，等拓撲重抓才會更新）。
+ * 網址只走 tcp，同 port 的 udp 不是同一條服務；回傳新物件，不動原本的拓撲資料。
+ */
+export function withPortIndexing(edge, target, allowIndexing) {
+  return {
+    ...edge,
+    ports: (edge.ports ?? []).map((port) => (
+      port.port === target.port && port.protocol === "tcp" && port.domain
+        ? { ...port, allow_indexing: allowIndexing }
+        : port
+    )),
+  };
+}
+
 /** 完整列出所有 port，給刪除確認這類需要全貌的地方 */
 export function portLabel(ports) {
   if (!ports?.length) return "";

@@ -460,7 +460,11 @@ def test_enrich_edges_does_not_label_udp_as_domain(
         "list_rules_by_vmids",
         lambda _s, _vmids: [
             SimpleNamespace(
-                vmid=150, internal_port=8080, domain="web.example.com", enable_https=True
+                vmid=150,
+                internal_port=8080,
+                domain="web.example.com",
+                enable_https=True,
+                allow_indexing=False,
             )
         ],
     )

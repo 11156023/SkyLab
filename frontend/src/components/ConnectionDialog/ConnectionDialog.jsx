@@ -311,6 +311,8 @@ export default function ConnectionDialog({
   const [zoneId, setZoneId] = useState(service?.zone_id ?? "");
   const [prefix, setPrefix] = useState(service?.hostname_prefix ?? "");
   const [enableHttps, setEnableHttps] = useState(service?.enable_https ?? true);
+  /* 機器的網站預設不讓搜尋引擎收錄，個人網站之類想被搜到的再勾（課程模板的網址一律不收錄，沒有這格） */
+  const [allowIndexing, setAllowIndexing] = useState(false);
   const [availability, setAvailability] = useState(null); // { available, reason, message, checking }
 
   /* zones 抓回來後：目前的 zone 不在清單裡（或還沒選）就預設第一個 */
@@ -404,6 +406,7 @@ export default function ConnectionDialog({
         domainPort,
         fullDomain,
         enableHttps,
+        allowIndexing,
         domainTaken: availability?.available === false,
         domainTakenText: availability?.message ?? null,
         forwardRows: fwdRows,
@@ -678,6 +681,15 @@ export default function ConnectionDialog({
                   <MIcon name={availabilityIcon} size={14} spin={Boolean(availability?.checking)} />
                   {availabilityText}
                 </span>
+              )}
+              {!templateMode && (
+                <div className={styles.field}>
+                  <label className={styles.checkRow}>
+                    <input type="checkbox" checked={allowIndexing} onChange={(e) => setAllowIndexing(e.target.checked)} />
+                    <span>{t("ConnectionDialog.allowIndexing")}</span>
+                  </label>
+                  <span className={styles.fieldHint}>{t("ConnectionDialog.allowIndexingHint")}</span>
+                </div>
               )}
             </>
           )}

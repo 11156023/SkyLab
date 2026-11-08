@@ -1,5 +1,5 @@
 // Manual page: manual/resource-detail.md
-import { D, H, MIN, NOW, ago, iso, later } from "../lib/mock.mjs";
+import { D, MIN, ago, later } from "../lib/mock.mjs";
 import { BACKUP_VM, NEW_PUB, OWN_PUB, VM, registerResources } from "../mocks/resources.mjs";
 
 const tab = (s, key) => s.page.locator(`[data-guide-tab="resource-${key}"]`);

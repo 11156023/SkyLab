@@ -808,6 +808,31 @@ _ACCOUNT_ELEMENTS: tuple[ElementSpec, ...] = (
         id="account.tab_appearance", role="list", label="外觀", section="外觀",
         help="調整介面主題與顯示語言。",
     ),
+    ElementSpec(
+        id="account.feedback", role="textarea", label="使用者回饋", section="關於",
+        help="在「關於」分頁選類型（問題回報／功能建議／其他）、寫下內容後送出，只有管理員看得到，不需要 GitHub 帳號。",
+        constraints=("至少 5 字", "最多 2000 字"),
+    ),
+)
+
+# ── 使用者回饋（管理員） ────────────────────────────────────────────
+_FEEDBACK_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(
+        id="feedback.status_filter", role="select", label="處理狀態", section="回饋清單",
+        help="預設只看待處理；處理完的收在「已處理」，「全部」兩者都看。",
+    ),
+    ElementSpec(
+        id="feedback.category_filter", role="select", label="回饋類型", section="回饋清單",
+        help="依問題回報、功能建議、其他篩選。",
+    ),
+    ElementSpec(
+        id="feedback.mark_resolved", role="button", label="標記已處理", section="回饋清單",
+        help="看過並處理後標記；可用「改回待處理」還原。",
+    ),
+    ElementSpec(
+        id="feedback.delete", role="button", label="刪除", section="回饋清單",
+        help="刪除後無法復原，送出的人不會收到通知。",
+    ),
 )
 
 # ── AI API ──────────────────────────────────────────────────────────
@@ -1851,6 +1876,15 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         purpose="查詢系統操作紀錄，包含危險操作與登入失敗。",
         sections=("紀錄清單", "危險操作", "登入失敗"),
         elements=_AUDIT_ELEMENTS,
+        access="admin",
+    ),
+    SurfaceSpec(
+        id="feedback",
+        path="/feedback",
+        title="使用者回饋",
+        purpose="查看使用者從「帳號設定 › 關於」送出的問題回報與建議，標記已處理或刪除。",
+        sections=("回饋清單",),
+        elements=_FEEDBACK_ELEMENTS,
         access="admin",
     ),
     # 原「系統設定」的七個分頁，2026-09 各自升格為系統管理底下的獨立頁面

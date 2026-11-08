@@ -76,4 +76,17 @@ describe("ResourcesPage expiry column", () => {
       else process.env.TZ = previousTz;
     }
   });
+
+  test("an approved window that ends before the expiry date is the expiry shown", async () => {
+    mocks.list.mockResolvedValue([{
+      vmid: 102, name: "window-vm", type: "qemu", status: "stopped", request_id: 2,
+      expiry_date: "2027-03-01", window_start_at: "2026-10-01T00:00:00Z", window_end_at: "2026-12-31T12:00:00Z",
+    }]);
+    await act(async () => { root.render(withQueryClient(<ResourcesPage />)); });
+    await flush();
+
+    const row = [...host.querySelectorAll("tr")].find((tr) => tr.textContent.includes("window-vm"));
+    expect(row.textContent).toContain("2026/12/31");
+    expect(row.textContent).not.toContain("2027/03/01");
+  });
 });

@@ -22,6 +22,7 @@ import { resourceKeys, useAllResourcesQuery, useResourceCacheUpdater } from "../
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import VncDialog from "../../personal/resources/VncDialog";
 import { LIVE_STATUSES, machineSpecLabel, resourceRowKey, statusAfterAction } from "../../personal/resources/resourceRows";
+import { isExpiryFromWindow } from "../../personal/resources/detail/lifecycleFormat";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
@@ -362,10 +363,12 @@ function ResourceNameCell({ resource }) {
   );
 }
 
-function ResourceExpiryCell({ value }) {
+/* 到期日與核准時段取較早者（同「我的資源」與生命週期卡）：個人申請的機器多半只有時段 */
+function ResourceExpiryCell({ resource }) {
   const { t } = useTranslation("resource");
-  return value
-    ? <ExpiryDateValue value={value} />
+  if (isExpiryFromWindow(resource)) return <ExpiryDateValue value={resource.window_end_at} />;
+  return resource.expiry_date
+    ? <ExpiryDateValue value={resource.expiry_date} />
     : <span className={styles.noExpiry}>{t("ResourceMgmtPage.noExpiry")}</span>;
 }
 
@@ -516,7 +519,7 @@ const resourceColumns = columnHelper.columns([
   columnHelper.display({
     id: "expiry",
     header: () => <ColumnTitle index={5} />,
-    cell: ({ row }) => <ResourceExpiryCell value={row.original.expiry_date} />,
+    cell: ({ row }) => <ResourceExpiryCell resource={row.original} />,
     meta: { thClassName: styles.th, tdClassName: styles.td },
   }),
   /* 節點 */

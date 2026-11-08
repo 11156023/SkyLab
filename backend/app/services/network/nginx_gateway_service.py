@@ -105,8 +105,10 @@ def server_names_hash_bucket_size(domains: Iterable[str]) -> int:
     return max(_MIN_SERVER_NAMES_HASH_BUCKET_SIZE, rounded)
 
 
-def _proxy_location(vm_ip: str, internal_port: int) -> list[str]:
-    return [
+def _proxy_location(
+    vm_ip: str, internal_port: int, *, allow_indexing: bool
+) -> list[str]:
+    lines = [
         "    location / {",
         f"        proxy_pass http://{vm_ip}:{internal_port};",
         "        proxy_http_version 1.1;",
@@ -117,8 +119,11 @@ def _proxy_location(vm_ip: str, internal_port: int) -> list[str]:
         "        proxy_set_header Upgrade $http_upgrade;",
         "        proxy_set_header Connection $connection_upgrade;",
         "        proxy_read_timeout 300s;",
-        "    }",
     ]
+    if not allow_indexing:
+        # 機器的網站預設不讓搜尋引擎收錄（擁有者可在對外網址上打開）；always 讓錯誤頁也帶著
+        lines.append('        add_header X-Robots-Tag "noindex, nofollow" always;')
+    return [*lines, "    }"]
 
 
 @dataclass(frozen=True)
@@ -306,12 +311,20 @@ def build_http_config(
                 "    listen 443 ssl;",
                 f"    server_name {r.domain};",
                 *_ssl_certificate_lines(certificate),
-                *_proxy_location(r.vm_ip, r.internal_port),
+                *_proxy_location(
+                    r.vm_ip, r.internal_port, allow_indexing=r.allow_indexing
+                ),
                 "}",
                 "",
             ]
         else:
-            lines += [*_proxy_location(r.vm_ip, r.internal_port), "}", ""]
+            lines += [
+                *_proxy_location(
+                    r.vm_ip, r.internal_port, allow_indexing=r.allow_indexing
+                ),
+                "}",
+                "",
+            ]
     return "\n".join(lines)
 
 

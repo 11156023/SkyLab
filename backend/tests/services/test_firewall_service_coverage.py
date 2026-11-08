@@ -1331,10 +1331,16 @@ def test_list_vm_published_services_merges_rules_and_orphans(
         "list_rules_by_vmid",
         lambda session, vmid: [
             SimpleNamespace(
-                internal_port=80, domain="dup.example.com", enable_https=True
+                internal_port=80,
+                domain="dup.example.com",
+                enable_https=True,
+                allow_indexing=False,
             ),
             SimpleNamespace(
-                internal_port=443, domain="web.example.com", enable_https=True
+                internal_port=443,
+                domain="web.example.com",
+                enable_https=True,
+                allow_indexing=False,
             ),
         ],
     )

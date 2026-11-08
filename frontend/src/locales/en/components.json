@@ -230,6 +230,8 @@
   "ConnectionDialog.domainTaken": "This URL is already taken; please choose another",
   "ConnectionDialog.domainUnavailable": "URL publishing is unavailable right now (the administrator has not finished the domain or gateway setup)",
   "ConnectionDialog.enableHttps": "Enable HTTPS (uses the certificate set up by the administrator)",
+  "ConnectionDialog.allowIndexing": "Allow search engines such as Google to index this URL",
+  "ConnectionDialog.allowIndexingHint": "Off by default. Turn it on for a personal site or portfolio you want people to find. Leaving it off only asks search engines not to list the site; anyone with the URL can still open it.",
   "ConnectionDialog.commonPorts": "Common ports",
   "ConnectionDialog.externalPlaceholder": "e.g. 2222",
   "ConnectionDialog.externalPort": "External port",

@@ -12,7 +12,7 @@ name: Provision Class Event
 # 需要的 secrets（放在 pve-test environment）：
 #   SKYLAB_ADMIN_EMAIL / SKYLAB_ADMIN_PASSWORD   核准建機用的管理員
 #   SKYLAB_ADMIN_TOTP_SECRET                     管理員有開兩步驟驗證時才需要
-#   CLASS_STUDENT_PASSWORD_PATTERN               例如 ntubstudent{n:03d}@!
+#   CLASS_STUDENT_PASSWORD_PATTERN               格式 <前綴>{n:03d}<後綴>，前後綴自訂、不要寫進 repo
 #   CLASS_TEACHER_PASSWORD                       導師密碼
 # 選用的 variable：SKYLAB_API_URL（backend 不在 127.0.0.1:8000 時）
 on:

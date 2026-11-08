@@ -42,6 +42,14 @@ class ReverseProxyRule(SQLModel, table=True):
     )
     internal_port: int = Field(ge=1, le=65535, description="VM internal port")
     enable_https: bool = Field(default=True, description="Enable HTTPS")
+    allow_indexing: bool = Field(
+        default=False,
+        sa_column=sa.Column(sa.Boolean, nullable=False, server_default=sa.false()),
+        description=(
+            "Let search engines index the site; off (default) makes the gateway send "
+            "X-Robots-Tag: noindex"
+        ),
+    )
     dns_provider: str = Field(
         default="manual",
         max_length=32,

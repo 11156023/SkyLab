@@ -14,7 +14,7 @@ import pytest
 from app.services.resource import resource_service as svc
 
 
-def _resource(vmid: int, *, auto_stop_in_min: int | None = None) -> SimpleNamespace:
+def _resource(vmid: int, *, auto_stop_in_min: float | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         vmid=vmid,
         auto_stop_at=(
@@ -77,6 +77,17 @@ def test_only_running_machines_are_reported_with_one_listing(env) -> None:
     assert statuses[0].should_warn is True
     assert statuses[0].warn_reason == "auto_stop"
     assert calls == {"listing": 1, "policy": 1, "released": 1}
+
+
+@pytest.mark.parametrize("auto_stop_in_min", [0.5, -0.5])
+def test_auto_stop_warning_never_counts_down_to_zero_minutes(env, auto_stop_in_min: float) -> None:
+    """最後一分鐘、或時間已到但排程器（每 60 秒一輪）還沒關機時，曾顯示「約 0 分鐘後自動關機」。"""
+    env([_resource(100, auto_stop_in_min=auto_stop_in_min)], {100: {"status": "running"}})
+
+    statuses = svc.list_my_session_statuses(session=object(), user_id="u1")  # type: ignore[arg-type]
+
+    assert statuses[0].warn_reason == "auto_stop"
+    assert statuses[0].minutes_until_stop == 1
 
 
 def test_user_without_machines_skips_pve(env) -> None:

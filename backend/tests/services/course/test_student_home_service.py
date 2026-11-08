@@ -513,8 +513,6 @@ def test_reminders_derive_expiry_review_and_class_task() -> None:
 
 def test_course_content_and_answers_require_active_enrollment() -> None:
     """退選或別班的學生拿著 id 也不能讀路徑／房間內容或交答案。"""
-    import pytest
-
     from app.exceptions import NotFoundError
     from app.models import CourseQuestion, CourseQuestionType, CourseRoom, CourseTask
     from app.services.course import course_service, progress_service

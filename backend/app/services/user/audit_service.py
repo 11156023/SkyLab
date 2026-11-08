@@ -71,6 +71,7 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.firewall_rule_create: "firewall",
     AuditAction.firewall_rule_update: "firewall",
     AuditAction.firewall_rule_delete: "firewall",
+    AuditAction.reverse_proxy_rule_update: "firewall",
     AuditAction.reverse_proxy_rule_delete: "firewall",
     AuditAction.reverse_proxy_rule_sync: "firewall",
     # Gateway

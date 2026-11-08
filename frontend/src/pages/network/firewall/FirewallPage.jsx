@@ -20,6 +20,7 @@ import "@xyflow/react/dist/style.css";
 import {
   deleteConnection,
   saveLayout,
+  setServiceIndexing,
 } from "../../../services/firewall";
 import { useFirewallCacheUpdater, useFirewallTopologyQuery } from "../../../queries/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
@@ -31,7 +32,7 @@ import VMNode           from "./nodes/VMNode";
 import GroupNode        from "./nodes/GroupNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import ConnectionDetailPanel from "./ConnectionDetailPanel";
-import { GATEWAY_KEY, buildFlow, focusEdges, isOutboundEdge, portLabel, routeEdges } from "./utils/buildFlow";
+import { GATEWAY_KEY, buildFlow, focusEdges, isOutboundEdge, portLabel, routeEdges, withPortIndexing } from "./utils/buildFlow";
 import { mergePendingLayout, toLayoutEntry, topologyView } from "./utils/pageState";
 import {
   GROUP_THRESHOLD,
@@ -122,6 +123,8 @@ export default function FirewallPage() {
   const [dialogPreset, setDialogPreset] = useState(null); // 拉線帶入的來源/目標
   /* 刪除連線進行中：避免確認後又被按第二次而送出兩筆刪除 */
   const deletingEdgeRef = useRef(false);
+  /* 切換網址的搜尋引擎收錄送出中：開關先停用，等回應再放開 */
+  const [indexingBusy, setIndexingBusy] = useState(false);
   /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
   const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
@@ -466,6 +469,30 @@ export default function FirewallPage() {
     return locked ? t("FirewallPage.readOnlyEdge", { name: locked.name }) : "";
   };
 
+  /* ── 對外網址的搜尋引擎收錄：只有網際網路入站、而且能管理目標機器才給開關（課堂機對學生唯讀） ── */
+  const canToggleIndexing = (edge) => {
+    if (!edge || edge.source_vmid !== null) return false;
+    const target = (topology?.nodes ?? []).find((n) => n.vmid === edge.target_vmid);
+    return Boolean(target) && canManageNode(target);
+  };
+
+  /* 一切換就送出；成功後就地改掉面板上的值（面板拿的是點選當下的快照），再重抓拓撲 */
+  const toggleIndexing = async (port, next) => {
+    const edge = selectedEdge?.edge;
+    if (!edge || indexingBusy) return;
+    setIndexingBusy(true);
+    try {
+      await setServiceIndexing(edge.target_vmid, port.port, next);
+      setSelectedEdge((sel) => (sel?.edge === edge ? { ...sel, edge: withPortIndexing(edge, port, next) } : sel));
+      toast.success(t(next ? "FirewallPage.indexingAllowed" : "FirewallPage.indexingBlocked"));
+      refreshTopology();
+    } catch (err) {
+      toast.error(err?.message ?? t("FirewallPage.indexingFailed"));
+    } finally {
+      setIndexingBusy(false);
+    }
+  };
+
   /* 已有拓撲時重新載入不卸載整張圖（規則面板、連線面板一併保留） */
   const contentView = topologyView({ loading, error, topology });
 
@@ -726,6 +753,8 @@ export default function FirewallPage() {
                 onDelete={edgeLockedHint(detailPanel.item.edge) ? undefined : requestDeleteEdge}
                 lockedHint={edgeLockedHint(detailPanel.item.edge)
                   || (detailPanel.item.edge.topology_managed ? t("ConnectionPanel.lockedManaged") : "")}
+                onToggleIndexing={canToggleIndexing(detailPanel.item.edge) ? toggleIndexing : undefined}
+                indexingBusy={indexingBusy}
               />
             )}
           </div>

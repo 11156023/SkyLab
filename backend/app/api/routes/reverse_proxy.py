@@ -64,6 +64,7 @@ def _serialize_rule(rule) -> ReverseProxyRulePublic:
         zone_id=rule.zone_id,
         internal_port=rule.internal_port,
         enable_https=rule.enable_https,
+        allow_indexing=rule.allow_indexing,
         dns_provider=rule.dns_provider,
         created_at=rule.created_at,
     )
@@ -107,7 +108,13 @@ def _full_domain(session: SessionDep, *, zone_id: str, hostname_prefix: str) -> 
 
 
 def _publish_domain_service(
-    session: SessionDep, *, vmid: int, domain: str, internal_port: int, enable_https: bool
+    session: SessionDep,
+    *,
+    vmid: int,
+    domain: str,
+    internal_port: int,
+    enable_https: bool,
+    allow_indexing: bool,
 ) -> None:
     """對外網址一律走 publish_vm_service：nginx、DNS 與防火牆入站規則一起建立。
 
@@ -123,6 +130,7 @@ def _publish_domain_service(
             mode="domain",
             domain=domain,
             enable_https=enable_https,
+            allow_indexing=allow_indexing,
         ),
         session,
     )
@@ -226,6 +234,7 @@ def create_reverse_proxy_rule(
             ),
             internal_port=body.internal_port,
             enable_https=body.enable_https,
+            allow_indexing=body.allow_indexing,
         )
         return Message(message=t("reverseProxy.ruleCreated"))
     except BadRequestError as exc:
@@ -281,6 +290,7 @@ def update_reverse_proxy_rule(
                     mode="domain",
                     domain=domain,
                     enable_https=body.enable_https,
+                    allow_indexing=body.allow_indexing,
                 ),
                 session,
             )
@@ -313,6 +323,7 @@ def update_reverse_proxy_rule(
                 domain=domain,
                 internal_port=body.internal_port,
                 enable_https=body.enable_https,
+                allow_indexing=body.allow_indexing,
             )
         return Message(message=t("reverseProxy.ruleUpdated"))
     except NotFoundError as exc:

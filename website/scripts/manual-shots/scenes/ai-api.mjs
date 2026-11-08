@@ -1,5 +1,5 @@
 // Manual page: manual/ai-api.md
-import { D, H, MIN, NOW, ago, iso, later } from "../lib/mock.mjs";
+import { D, MIN, NOW, ago, iso, later } from "../lib/mock.mjs";
 import { aiApiMocks, myCredentials, myRequests } from "../mocks/ai.mjs";
 import { users } from "../mocks/common.mjs";
 

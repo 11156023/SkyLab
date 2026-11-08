@@ -122,6 +122,28 @@ afterEach(() => {
   host.remove();
 });
 
+describe("ResourceMgmtPage expiry column", () => {
+  test("a machine limited only by its approved window shows the window end instead of no expiry", async () => {
+    mocks.listAll.mockResolvedValueOnce([
+      vm(101, { window_start_at: "2026-10-01T00:00:00Z", window_end_at: "2026-12-31T12:00:00Z" }),
+    ]);
+    await renderPage();
+
+    expect(rowOf("vm-101").textContent).toContain("2026/12/31");
+    expect(rowOf("vm-101").textContent).not.toContain("ResourceMgmtPage.noExpiry");
+  });
+
+  test("an approved window that ends before the expiry date is the expiry shown", async () => {
+    mocks.listAll.mockResolvedValueOnce([
+      vm(102, { expiry_date: "2027-03-01", window_start_at: "2026-10-01T00:00:00Z", window_end_at: "2026-12-31T12:00:00Z" }),
+    ]);
+    await renderPage();
+
+    expect(rowOf("vm-102").textContent).toContain("2026/12/31");
+    expect(rowOf("vm-102").textContent).not.toContain("2027/03/01");
+  });
+});
+
 describe("ResourceMgmtPage", () => {
   test("Create resource opens the request form, not just the request list", async () => {
     mocks.listAll.mockResolvedValueOnce([]);

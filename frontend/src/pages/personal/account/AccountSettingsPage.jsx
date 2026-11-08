@@ -9,6 +9,7 @@ import PasswordRules from "../../../components/PasswordRules/PasswordRules";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import TotpEnrollment from "../../../components/TotpEnrollment/TotpEnrollment";
 import { useAuth } from "../../../contexts/AuthContext";
+import { useUnsavedChangesOptional } from "../../../contexts/UnsavedChangesContext";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { AccountService } from "../../../services/account";
@@ -484,8 +485,12 @@ function DangerZoneSection() {
       toast.success(t("DangerZoneTab.accountDeleted"));
       logout();
     } catch (err) {
+      /* 後端拒絕（例如仍持有已開通的機器）：提示後把確認框收起來，
+         不然使用者看到錯誤卻還停在「確定刪除」的畫面上（2026-11-06 ntub 實測） */
       toast.error(err?.message ?? t("DangerZoneTab.deleteFailed"));
       setDeleting(false);
+      setShowConfirm(false);
+      setConfirmText("");
     }
   }
 
@@ -557,6 +562,13 @@ function DangerZoneSection() {
 export default function AccountSettingsPage() {
   const { t } = useTranslation("personal");
   const [activeTab, setActiveTab] = useState("profile");
+  /* 換分頁會卸載目前分頁（打到一半的回饋就沒了）：有未送出的內容先問，跟側欄導覽同一套 */
+  const unsaved = useUnsavedChangesOptional();
+  const switchTab = async (key) => {
+    if (key === activeTab) return;
+    if (unsaved && !(await unsaved.confirmLeave())) return;
+    setActiveTab(key);
+  };
 
   return (
     <div className={styles.page}>
@@ -572,7 +584,7 @@ export default function AccountSettingsPage() {
             buttonProps: tab.buttonProps,
           }))}
           value={activeTab}
-          onChange={setActiveTab}
+          onChange={switchTab}
           ariaLabel={t("AccountSettingsPage.title")}
         />
         {activeTab === "appearance" && <AppearanceResetButton />}

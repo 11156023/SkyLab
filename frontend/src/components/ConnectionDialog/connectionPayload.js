@@ -45,6 +45,7 @@ export function buildOutboundPorts() {
  * @param {string|number} input.domainPort     mode=domain 的對外 port
  * @param {string} input.fullDomain            mode=domain 的完整網域
  * @param {boolean} input.enableHttps
+ * @param {boolean} input.allowIndexing        mode=domain 是否讓搜尋引擎收錄（預設不收錄；課程模板不帶，開課的網址一律不收錄）
  * @param {boolean} input.domainTaken          即時檢查判定網域已被占用
  * @param {string|null} input.domainTakenText  佔用原因（API 給的訊息，優先顯示）
  * @param {Array} input.forwardRows            mode=port_forward 的列
@@ -59,6 +60,7 @@ export function buildInboundPayload({
   domainPort,
   fullDomain,
   enableHttps,
+  allowIndexing = false,
   domainTaken = false,
   domainTakenText = null,
   forwardRows = [],
@@ -100,7 +102,14 @@ export function buildInboundPayload({
     if (!fullDomain) return fail("ConnectionDialog.domainRequired");
     if (domainTaken) return fail("ConnectionDialog.domainTaken", domainTakenText);
     return {
-      publish: [{ port, protocol: "tcp", mode, domain: fullDomain, enable_https: enableHttps }],
+      publish: [{
+        port,
+        protocol: "tcp",
+        mode,
+        domain: fullDomain,
+        enable_https: enableHttps,
+        allow_indexing: Boolean(allowIndexing),
+      }],
       raw: [],
     };
   }

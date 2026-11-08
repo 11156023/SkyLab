@@ -71,12 +71,14 @@ The map refreshes on its own about every 30 seconds.
 
 1. Choose **Expose a service** and pick the machine in **Which machine**.
 2. Under **How to expose it**, choose one of:
-   - **URL**: enter **Which port does your service run on?** (default 80), keep or untick **Enable HTTPS**, type a **Hostname prefix** (leave it blank to use the bare domain) and choose the **Domain suffix**. The dialog checks right away whether the address is free and blocks it if it is taken, whether by SkyLab or by a record that already exists in Cloudflare.
+   - **URL**: enter **Which port does your service run on?** (default 80), keep or untick **Enable HTTPS**, type a **Hostname prefix** (leave it blank to use the bare domain) and choose the **Domain suffix**. The dialog checks right away whether the address is free and blocks it if it is taken, whether by SkyLab or by a record that already exists in Cloudflare. Tick **Allow search engines such as Google to index this URL** only if you want the site to turn up in search results, for example a personal site; it is off by default.
    - **External port**: for each row enter the **External port** others will use, the **Internal port** the service listens on and the **Protocol** (tcp or udp); use **Add mapping** for more. Others connect through "campus gateway IP:external port". If an external port is already taken you are asked to choose another.
    - **Firewall only**: enter the ports and protocols to open in the machine's firewall, with no URL or port forwarding.
 3. Click **Publish**.
 
 If several ports are published at once and one of them fails, the ones that succeeded are kept and removed from the form, and the message tells you which port failed.
+
+To change search engine indexing later, click the line from **Internet** to the machine and use the **Let search engines index** switch next to the URL in **Connection details**. It takes effect at once and does not change the address. The switch only appears on machines whose firewall you can manage.
 
 ![Expose a service to the outside (numbers match the steps above)](/manual-shots/en/firewall/s06.webp)
 
@@ -133,6 +135,7 @@ None of these buttons change any firewall rule.
 | Direction (connection) | **One-way** or **Bidirectional** | Only for **Connect two machines** |
 | How to expose it | **URL**, **External port** or **Firewall only** | **URL** only when the administrator has finished the domain and Gateway setup |
 | Enable HTTPS | Serve the URL over HTTPS with the administrator's certificate | On by default |
+| Allow search engines to index | Let Google and other search engines list the URL in their results | Off by default; while off, the Gateway sends `X-Robots-Tag: noindex` with every response |
 | Hostname prefix / Domain suffix | The published address is prefix + suffix, for example `myapp.example.com` | The suffixes are the active Cloudflare zones |
 | Action (raw rule) | **Allow**, **Drop** or **Reject** | — |
 | Source / Destination IP or subnet | Limits a raw rule to an address or subnet | Blank means any |
@@ -144,6 +147,7 @@ None of these buttons change any firewall rule.
 - Administrators can set **Default Blocked Subnets / IPs** on the [IP Management](/manual/ip-management) page. They become locked outbound drop rules on every machine, placed before the rule that allows general outbound traffic, so a machine cannot reach those networks even with an outbound connection.
 - When the main system IP is set on IP Management, every machine also carries a locked rule that allows SSH (port 22) from the SkyLab host.
 - A URL that is already used by another machine, by the platform's own domain, or by an existing Cloudflare record cannot be published.
+- Published URLs are not indexed by search engines unless their owner turns indexing on, and URLs published before this option existed start with it off. URLs that a course environment creates for students are never indexed. Leaving indexing off only asks search engines not to list the site: anyone with the URL can still open it, so use the firewall to keep a service private. A site that was already listed drops out of search results after the search engine next visits it.
 - Group positions and collapsed groups are stored in this browser; single-machine positions are stored on the server.
 
 ## Related

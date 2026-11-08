@@ -73,6 +73,7 @@ const StoragePage = lazy(() => import("./pages/system/settings/StoragePage"));
 const MonitoringPage = lazy(() => import("./pages/system/monitoring/MonitoringPage"));
 const IpManagementPage = lazy(() => import("./pages/system/ip-management/IpManagementPage"));
 const AuditPage = lazy(() => import("./pages/system/audit/AuditPage"));
+const FeedbackPage = lazy(() => import("./pages/system/feedback/FeedbackPage"));
 const JobsPage = lazy(() => import("./pages/system/jobs/JobsPage"));
 
 // 網路
@@ -315,6 +316,7 @@ function App() {
               <Route path="/ip-management" element={<IpManagementPage />} />
               <Route path="/monitoring" element={<MonitoringPage />} />
               <Route path="/audit"     element={<AuditPage />} />
+              <Route path="/feedback"  element={<FeedbackPage />} />
             </>
           )}
           <Route path="/jobs"      element={<JobsPage />} />

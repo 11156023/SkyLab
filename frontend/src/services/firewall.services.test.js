@@ -4,7 +4,7 @@
  */
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { getVmTopology, publishService, replacePublishedService } from "./firewall";
+import { getVmTopology, publishService, replacePublishedService, setServiceIndexing } from "./firewall";
 import { ReverseProxyService } from "./reverseProxy";
 
 function fakeStorage() {
@@ -60,6 +60,15 @@ describe("firewall 單台 VM 端點", () => {
       current: { port: 80, protocol: "tcp" },
       replacement: { port: 80, mode: "port_forward", external_port: 8080 },
     });
+  });
+
+  test("setServiceIndexing 以 PATCH 切換一條網址的搜尋引擎收錄", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { message: "ok" }));
+    await setServiceIndexing(105, 80, true);
+    const { url, init, body } = lastCall();
+    expect(url).toContain("/api/v1/firewall/105/services/indexing");
+    expect(init.method).toBe("PATCH");
+    expect(body).toEqual({ port: 80, allow_indexing: true });
   });
 });
 

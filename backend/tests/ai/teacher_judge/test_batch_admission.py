@@ -229,7 +229,7 @@ async def test_cancellation_drains_preparation_and_never_dispatches_ssh(
     finally:
         release.set()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
     db.expire_all()
     run = db.exec(select(TeacherJudgeScriptRun)).one()
     assert run.status == TeacherJudgeScriptRunStatus.failed

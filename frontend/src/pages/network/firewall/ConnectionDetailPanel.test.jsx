@@ -40,3 +40,41 @@ describe("ConnectionDetailPanel managed topology", () => {
     expect(html).toContain("ConnectionPanel.delete");
   });
 });
+
+describe("ConnectionDetailPanel search indexing switch", () => {
+  const inbound = {
+    source_vmid: null,
+    target_vmid: 150,
+    direction: "one_way",
+    ports: [
+      { port: 80, protocol: "tcp", domain: "me.example.com", allow_indexing: false },
+      { port: 22, protocol: "tcp", external_port: 30022 },
+    ],
+  };
+  const panel = (props) => renderToStaticMarkup(
+    <ConnectionDetailPanel
+      edge={inbound}
+      resolveName={(vmid) => `vm-${vmid}`}
+      onClose={() => {}}
+      {...props}
+    />,
+  );
+
+  it("shows one switch, on the URL only, reflecting the current setting", () => {
+    const html = panel({ onToggleIndexing: () => {} });
+
+    expect(html.match(/role="switch"/g)).toHaveLength(1);
+    expect(html).toContain('aria-checked="false"');
+    expect(html).toContain("ConnectionPanel.allowIndexing");
+  });
+
+  it("is hidden for people who cannot manage the machine and on course templates", () => {
+    expect(panel({})).not.toContain('role="switch"');
+    expect(panel({ onToggleIndexing: () => {}, allowOpen: false })).not.toContain('role="switch"');
+  });
+
+  it("is disabled while a change is being saved", () => {
+    const html = panel({ onToggleIndexing: () => {}, indexingBusy: true });
+    expect(html).toMatch(/role="switch"[^>]*disabled=""/);
+  });
+});

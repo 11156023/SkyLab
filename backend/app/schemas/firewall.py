@@ -47,6 +47,10 @@ class PortSpec(BaseModel):
         default=True,
         description="反向代理是否啟用 HTTPS（用管理員設定在 Gateway 上的憑證）",
     )
+    allow_indexing: bool = Field(
+        default=False,
+        description="對外網址是否讓搜尋引擎收錄；預設不收錄（Gateway 回應帶 X-Robots-Tag: noindex）",
+    )
 
     @field_validator("protocol", mode="before")
     @classmethod
@@ -108,6 +112,9 @@ class PublishedServiceCreate(BaseModel):
     mode: PublishMode = Field(default="firewall_only")
     domain: str | None = Field(default=None, max_length=255, description="完整網域（mode=domain）")
     enable_https: bool = Field(default=True)
+    allow_indexing: bool = Field(
+        default=False, description="讓搜尋引擎收錄這個網址（mode=domain；預設不收錄）"
+    )
     external_port: int | None = Field(
         default=None, ge=1, le=65535, description="外部 port（mode=port_forward）"
     )
@@ -140,6 +147,9 @@ class PublishedServiceCreate(BaseModel):
         else:
             self.domain = None
             self.external_port = None
+        if self.mode != "domain":
+            # 沒有網址就沒有網頁可收錄
+            self.allow_indexing = False
         return self
 
     def to_port_spec(self) -> PortSpec:
@@ -149,6 +159,7 @@ class PublishedServiceCreate(BaseModel):
             external_port=self.external_port,
             domain=self.domain,
             enable_https=self.enable_https,
+            allow_indexing=self.allow_indexing,
         )
 
 
@@ -159,6 +170,13 @@ class PublishedServiceUpdate(BaseModel):
     replacement: PublishedServiceCreate
 
 
+class PublishedServiceIndexingUpdate(BaseModel):
+    """切換一條對外網址是否讓搜尋引擎收錄（網址只走 tcp，用內部 port 指認）"""
+
+    port: int = Field(ge=1, le=65535, description="VM 內部 port")
+    allow_indexing: bool
+
+
 class PublishedService(BaseModel):
     """對外服務（回應）"""
 
@@ -167,6 +185,7 @@ class PublishedService(BaseModel):
     mode: PublishMode
     domain: str | None = None
     enable_https: bool = True
+    allow_indexing: bool = False
     external_port: int | None = None
     url: str | None = Field(default=None, description="mode=domain 時的完整網址")
     firewall_rule_present: bool = Field(
@@ -318,6 +337,7 @@ __all__ = [
     "PublishMode",
     "PublishedService",
     "PublishedServiceCreate",
+    "PublishedServiceIndexingUpdate",
     "PublishedServiceRef",
     "PublishedServiceUpdate",
 ]

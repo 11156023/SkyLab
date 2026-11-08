@@ -1062,6 +1062,29 @@ def test_set_auto_stop_outside_window_uses_practice_quota(autostop_env) -> None:
     assert calls[0]["auto_stop_at"] == NOW + timedelta(hours=3)
 
 
+def test_set_auto_stop_skips_practice_quota_for_admin_or_teacher_owner(
+    autostop_env,
+) -> None:
+    """練習時段只管學生：管理員／老師自己的機器手動開機不該被排 3 小時後自動關機
+    （2026-11-06 ntub 實測：管理員共享給學生的機器開機後出現「練習時間用完」）。"""
+    state, calls = autostop_env
+    for role in ("admin", "teacher"):
+        owner_id = uuid.uuid4()
+        state["resource"] = _db_resource(user_id=owner_id)
+        session = FakeSession(get_map={owner_id: SimpleNamespace(role=role)})
+        resource_service._set_auto_stop_for_user_start(session=session, vmid=1)
+    assert calls == []
+
+
+def test_set_auto_stop_applies_practice_quota_for_student_owner(autostop_env) -> None:
+    state, calls = autostop_env
+    owner_id = uuid.uuid4()
+    state["resource"] = _db_resource(user_id=owner_id)
+    session = FakeSession(get_map={owner_id: SimpleNamespace(role="student")})
+    resource_service._set_auto_stop_for_user_start(session=session, vmid=1)
+    assert calls[0]["auto_stop_reason"] == "practice_quota"
+
+
 def test_extend_session_rejections(monkeypatch) -> None:
     user_id = uuid.uuid4()
     _patch_get_resource(monkeypatch, None)

@@ -2,7 +2,6 @@
 import { registerResources, teacherMachines } from "../mocks/resources.mjs";
 import { MAIN, frame, res, useTemplates } from "../mocks/resadmin.mjs";
 
-const C = { crop: MAIN };
 const CS = { crop: MAIN, scroll: false };
 const band = (height) => ({ crop: { ...MAIN, height }, scroll: false });
 // From the top of the page down to the bottom of `loc` (a menu that opens low on the page).

@@ -81,6 +81,32 @@ afterEach(() => {
   host.remove();
 });
 
+describe("GatewayCertificateTab expiry wording", () => {
+  async function renderStatus(expiresAt) {
+    mocks.getCertificate.mockResolvedValue(config);
+    mocks.getCertificateStatus.mockResolvedValue({ ...healthyStatus, expires_at: expiresAt });
+    await act(async () => { root.render(withQueryClient(<GatewayCertificateTab gatewayReady onGoToConnection={() => {}} />)); });
+    await flush();
+  }
+
+  test("a certificate with less than a day left is not described as 0 days left", async () => {
+    await renderStatus(new Date(Date.now() + 5 * 3_600_000).toISOString());
+
+    expect(host.textContent).toContain("GatewayPage.certWarnLessThanDay");
+    expect(host.textContent).toContain("GatewayPage.certStatusLessThanDay");
+    expect(host.textContent).not.toContain("GatewayPage.certWarnExpiring");
+    expect(host.textContent).not.toContain("GatewayPage.certStatusExpiresValue");
+  });
+
+  test("an expired certificate is shown as expired, not as 0 days left", async () => {
+    await renderStatus(new Date(Date.now() - 2 * 86_400_000).toISOString());
+
+    expect(host.textContent).toContain("GatewayPage.certWarnExpired");
+    expect(host.textContent).toContain("GatewayPage.certStatusExpiredValue");
+    expect(host.textContent).not.toContain("GatewayPage.certStatusExpiresValue");
+  });
+});
+
 describe("GatewayCertificateTab status check", () => {
   test("a refresh requested while a check is running is queued, so the post-save status shows", async () => {
     const preSave = deferred();

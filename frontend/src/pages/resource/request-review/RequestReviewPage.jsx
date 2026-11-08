@@ -204,6 +204,18 @@ function normalizeVmRequest(request, t) {
   };
 }
 
+/** 清單標題：延長到期日雖然走規格調整的申請單，標題要寫「延長到期日」，審核的人才不用點進去看變更類型 */
+export function specRequestTitle(request, t) {
+  const isExpiry = request.change_type === "expiry";
+  if (request.resource_name) {
+    return t(isExpiry ? "RequestReviewPage.expiryChangeTitleNamed" : "RequestReviewPage.specChangeTitleNamed", {
+      name: request.resource_name,
+      vmid: request.vmid,
+    });
+  }
+  return t(isExpiry ? "RequestReviewPage.expiryChangeTitle" : "RequestReviewPage.specChangeTitle", { vmid: request.vmid });
+}
+
 function normalizeSpecRequest(request, t) {
   return {
     id: `spec:${request.id}`,
@@ -213,9 +225,7 @@ function normalizeSpecRequest(request, t) {
     reviewStatus: request.status,
     status: request.status,
     progressText: specProgressLabel(request, t),
-    title: request.resource_name
-      ? t("RequestReviewPage.specChangeTitleNamed", { name: request.resource_name, vmid: request.vmid })
-      : t("RequestReviewPage.specChangeTitle", { vmid: request.vmid }),
+    title: specRequestTitle(request, t),
     user: request.user_full_name || request.user_email || t("RequestReviewPage.unknownUser"),
     userSubtext: request.user_email || request.user_id || "-",
     timeText: shortTime(request.created_at, t),

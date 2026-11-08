@@ -199,6 +199,13 @@
   @include text-truncate;
 }
 
+/* 網址的搜尋引擎收錄開關：放在用途下一行，不跟開啟連結搶同一列；面板窄，字跟著 port 說明縮小 */
+.portIndexing {
+  align-self: flex-start;
+  margin-top: $spacing-4;
+  font-size: $font-size-12;
+}
+
 .openLink {
   @include flex-center;
   width: 28px;

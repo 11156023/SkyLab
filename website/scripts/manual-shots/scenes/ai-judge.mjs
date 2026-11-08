@@ -239,7 +239,6 @@ function world(m, opts = {}) {
       status: "ready", created_at: iso(NOW - 6 * D), updated_at: ago(3 * H),
     };
   };
-  const weekOf = (sid) => Number(String(sid).replace("chk-wk", ""));
   const setObj = (n) => ({
     artifact_set_id: `set-wk${n}`, status: "approved", is_active: true, source_analysis_revision: check(n).setRev ?? check(n).rev, source_is_current: true,
     created_at: ago(26 * H),

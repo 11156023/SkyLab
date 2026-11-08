@@ -26,11 +26,12 @@ from app.schemas.firewall import (
     LayoutUpdate,
     PublishedService,
     PublishedServiceCreate,
+    PublishedServiceIndexingUpdate,
     PublishedServiceRef,
     PublishedServiceUpdate,
     TopologyResponse,
 )
-from app.services.network import firewall_service
+from app.services.network import firewall_service, reverse_proxy_service
 from app.services.resource.access import require_resource_management
 from app.services.user import audit_service
 
@@ -442,6 +443,39 @@ def unpublish_service(
         details=f"Unpublished service on VM {vmid}: {body.port}/{body.protocol}",
     )
     return Message(message=t("firewall.serviceUnpublished"))
+
+
+@router.patch("/{vmid}/services/indexing", response_model=Message)
+def set_service_indexing(
+    vmid: int,
+    body: PublishedServiceIndexingUpdate,
+    session: SessionDep,
+    current_user: CurrentUser,
+    _resource_info: ResourceInfoDep,
+) -> Message:
+    """切換一條對外網址是否讓搜尋引擎收錄（只改 Gateway 的回應標頭，網址與 DNS 不動）"""
+    require_resource_management(session=session, user=current_user, vmid=vmid)
+    try:
+        reverse_proxy_service.set_rule_indexing(
+            session, vmid, body.port, body.allow_indexing
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except BadRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ProxmoxError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    audit_service.log_action(
+        session=session,
+        user_id=current_user.id,
+        vmid=vmid,
+        action=AuditAction.reverse_proxy_rule_update,
+        details=(
+            f"Set search indexing on VM {vmid}: {body.port}/tcp "
+            f"allow_indexing={body.allow_indexing}"
+        ),
+    )
+    return Message(message=t("firewall.serviceIndexingUpdated"))
 
 
 @router.get("/{vmid}/options", response_model=FirewallOptionsPublic)

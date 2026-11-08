@@ -34,6 +34,7 @@ def _rule(vmid: int = 101, domain: str = "a.example.com", port: int = 80):
         zone_id="zone-1",
         internal_port=port,
         enable_https=True,
+        allow_indexing=False,
         dns_provider="cloudflare",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -313,6 +314,35 @@ def _update_body(vmid: int = 101, port: int = 8080) -> ReverseProxyRuleUpdate:
     return ReverseProxyRuleUpdate(
         vmid=vmid, zone_id="zone-1", hostname_prefix="app", internal_port=port
     )
+
+
+def test_rule_routes_carry_allow_indexing(monkeypatch, access_calls, firewall) -> None:
+    """建立、改網址、換機器都要帶著收錄設定；列表也要看得到，否則一改就被重設成不收錄。"""
+    fake, _calls = firewall
+    specs: list = []
+    fake.publish_vm_service = lambda vmid, spec, session: specs.append(spec)
+    fake.replace_vm_service = lambda vmid, current, spec, session: specs.append(spec)
+    rule = _rule(101, port=80)
+    rule.allow_indexing = True
+    monkeypatch.setattr(routes.rp_repo, "get_rule", lambda session, rule_id: rule)
+    monkeypatch.setattr(routes.rp_repo, "list_rules", lambda session: [rule])
+    monkeypatch.setattr(
+        routes.reverse_proxy_service, "assert_domain_available", lambda *a, **k: None
+    )
+
+    routes.create_reverse_proxy_rule(
+        _create_body().model_copy(update={"allow_indexing": True}), SESSION, ADMIN
+    )
+    for vmid in (101, 202):
+        routes.update_reverse_proxy_rule(
+            str(rule.id),
+            _update_body(vmid).model_copy(update={"allow_indexing": True}),
+            SESSION,
+            ADMIN,
+        )
+
+    assert [spec.allow_indexing for spec in specs] == [True, True, True]
+    assert routes.list_reverse_proxy_rules(SESSION, ADMIN)[0].allow_indexing is True
 
 
 @pytest.fixture

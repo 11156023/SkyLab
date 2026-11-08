@@ -25,6 +25,11 @@ export function useUnsavedChanges() {
   return ctx;
 }
 
+/** 同 useUnsavedChanges，但沒有 Provider 時回傳 null：給可能被單獨渲染（分頁內容、單元測試）的元件用 */
+export function useUnsavedChangesOptional() {
+  return useContext(UnsavedChangesContext);
+}
+
 /** 表單頁一行註冊：dirty 為 true 時啟動跳離攔截，頁面卸載自動解除 */
 export function useUnsavedChangesGuard(dirty) {
   const { setDirty } = useUnsavedChanges();

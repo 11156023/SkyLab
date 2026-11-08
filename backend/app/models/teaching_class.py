@@ -279,6 +279,7 @@ class TeachingClassStudentMachine(SQLModel, table=True):
 
 __all__ = [
     "INSTRUCTOR_ENROLLMENT_STATUS",
+    "PUBLISHED_WEEK_STATUSES",
     "TeachingClass",
     "TeachingClassStatus",
     "TeachingClassMachineNode",

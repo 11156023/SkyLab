@@ -1,5 +1,5 @@
 // Manual page: manual/course-cms.md
-import { D, H, ago } from "../lib/mock.mjs";
+import { D, ago } from "../lib/mock.mjs";
 
 const uid = (n) => `5b1e9c40-0000-4c00-8000-${String(n).padStart(12, "0")}`;
 const CLASS = { linux: uid(1), web: uid(2), sec: uid(3), cloud: uid(4) };

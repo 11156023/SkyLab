@@ -47,7 +47,7 @@ describe("helpers", () => {
 describe("buildInboundPayload：網址模式", () => {
   const base = { mode: "domain", domainPort: "443", fullDomain: "lab.example.edu", enableHttps: true };
 
-  test("組出單筆發布，協定固定 tcp", () => {
+  test("組出單筆發布，協定固定 tcp，預設不讓搜尋引擎收錄", () => {
     expect(buildInboundPayload(base)).toEqual({
       publish: [{
         port: 443,
@@ -55,9 +55,15 @@ describe("buildInboundPayload：網址模式", () => {
         mode: "domain",
         domain: "lab.example.edu",
         enable_https: true,
+        allow_indexing: false,
       }],
       raw: [],
     });
+  });
+
+  test("勾了允許收錄就帶上 allow_indexing", () => {
+    const { publish } = buildInboundPayload({ ...base, allowIndexing: true });
+    expect(publish[0].allow_indexing).toBe(true);
   });
 
   test("port 不合法就擋下", () => {
@@ -236,6 +242,14 @@ describe("buildInboundPayload：templateMode", () => {
       { port: 5678, protocol: "tcp", mode: "domain", hostname_prefix: "my-n8n", zone_id: "zone-1", enable_https: true },
     ]);
     expect(out.raw).toEqual([]);
+  });
+
+  test("課程網址一律不收錄：就算傳了 allowIndexing 也不帶出去", () => {
+    const out = buildInboundPayload({
+      mode: "domain", domainPort: "5678", enableHttps: true, allowIndexing: true,
+      templateMode: true, hostnamePrefix: "app", zoneId: "zone-1",
+    });
+    expect(out.publish[0]).not.toHaveProperty("allow_indexing");
   });
 
   test.each(["-app", "app-", "my app", "my.app", "{student}-app", "a".repeat(41)])(

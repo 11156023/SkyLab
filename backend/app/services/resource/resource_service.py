@@ -14,6 +14,7 @@ from sqlmodel import Session, col, select
 from app.core.authorizers import can_bypass_resource_ownership
 from app.core.db import end_read_transaction
 from app.core.i18n import t
+from app.core.permissions import get_user_role
 from app.core.security import decrypt_value
 from app.domain.resource_markers import (
     RESOURCE_DELETED_BY_USER_MARKER,
@@ -35,6 +36,7 @@ from app.models import (
     TeachingClassMachineNode,
     TeachingClassStatus,
     User,
+    UserRole,
     VMTemplate,
     VMTemplateStatus,
 )
@@ -1889,6 +1891,16 @@ def _set_auto_stop_for_user_start(*, session: Session, vmid: int) -> None:
         # In course window — the scheduler already set window_grace; don't shorten it.
         return
 
+    # 練習時段只管學生：老師／管理員自己的機器（含共享給學生的那些）手動開機
+    # 不該被排 3 小時後自動關機。找不到擁有者時維持保守（照學生規則）。
+    owner = (
+        session.get(User, resource.user_id)
+        if resource is not None and getattr(resource, "user_id", None) is not None
+        else None
+    )
+    if owner is not None and get_user_role(owner) != UserRole.student:
+        return
+
     # Outside any window: enforce practice-quota auto-stop.
     auto_stop_at = now + timedelta(hours=policy.practice_session_hours)
     resource_repo.set_auto_stop(
@@ -2030,7 +2042,9 @@ def _session_status(
     auto_stop_warn = False
     if running and auto_stop_at:
         delta = auto_stop_at - _utc_now()
-        minutes_until_stop = max(int(delta.total_seconds() // 60), 0)
+        # 無條件進位且至少 1：最後一分鐘、或時間到了但排程器（每 60 秒一輪）還沒關機時，
+        # 曾顯示「約 0 分鐘後自動關機」
+        minutes_until_stop = max(math.ceil(delta.total_seconds() / 60), 1)
         auto_stop_warn = minutes_until_stop <= policy.practice_warning_minutes
 
     expiry_at: datetime | None = None

@@ -4,7 +4,7 @@
  * 端點參考：backend/app/api/routes/firewall.py
  */
 
-import { apiDelete, apiGet, apiPost, apiPut, apiDeleteJson } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiDeleteJson } from "./api";
 
 /** 取得拓撲（節點 + 連線） */
 export function getTopology(options) {
@@ -66,7 +66,7 @@ export function getVmTopology(vmid) {
 
 /**
  * 發布一條對外服務
- * @param {{ port:number, protocol?:string, mode:"domain"|"port_forward"|"firewall_only", domain?:string, enable_https?:boolean, external_port?:number }} data
+ * @param {{ port:number, protocol?:string, mode:"domain"|"port_forward"|"firewall_only", domain?:string, enable_https?:boolean, allow_indexing?:boolean, external_port?:number }} data
  */
 export function publishService(vmid, data) {
   return apiPost(`/api/v1/firewall/${vmid}/services`, data);
@@ -75,4 +75,9 @@ export function publishService(vmid, data) {
 /** 換掉一條服務的發布方式（current: {port, protocol}，replacement 同 publishService） */
 export function replacePublishedService(vmid, current, replacement) {
   return apiPut(`/api/v1/firewall/${vmid}/services`, { current, replacement });
+}
+
+/** 切換一條對外網址是否讓搜尋引擎收錄（port 是機器內部 port；網址與 DNS 不動） */
+export function setServiceIndexing(vmid, port, allowIndexing) {
+  return apiPatch(`/api/v1/firewall/${vmid}/services/indexing`, { port, allow_indexing: allowIndexing });
 }

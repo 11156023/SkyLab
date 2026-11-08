@@ -17,6 +17,39 @@ concurrency:
 permissions:
   contents: read
 
+# Shared by the pytest and performance jobs (harmless for lint)
+env:
+  # --- Database / cache ---
+  POSTGRES_SERVER: localhost
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: testpass
+  POSTGRES_DB: app_test
+  REDIS_URL: redis://localhost:6379/0
+
+  # --- Required by app.core.config ---
+  # Use long random-ish strings to avoid the "changethis" warning being
+  # treated as an error by any future strict-mode check.
+  SECRET_KEY: ci-test-secret-key-not-for-production-use-32b
+  FIRST_SUPERUSER: admin@example.com
+  FIRST_SUPERUSER_PASSWORD: ci-test-password-not-for-production
+  EMAILS_FROM_EMAIL: noreply@example.com
+  ENVIRONMENT: local
+  PROJECT_NAME: SkyLab-ci
+  BACKEND_CORS_ORIGINS: '["http://localhost"]'
+
+  # --- Proxmox: tests must mock these; values are placeholders ---
+  PROXMOX_HOST: proxmox.invalid
+  PROXMOX_USER: root@pam
+  PROXMOX_PASSWORD: not-a-real-password
+  PROXMOX_VERIFY_SSL: "false"
+  PROXMOX_ISO_STORAGE: local
+  PROXMOX_DATA_STORAGE: local-lvm
+
+  # --- Logging: keep CI logs human-readable ---
+  LOG_LEVEL: WARNING
+  LOG_JSON: "false"
+
 jobs:
   pytest:
     name: pytest (Python ${{ matrix.python-version }})
@@ -59,43 +92,11 @@ jobs:
           --health-timeout 3s
           --health-retries 10
 
-    env:
-      # --- Database / cache ---
-      POSTGRES_SERVER: localhost
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: testpass
-      POSTGRES_DB: app_test
-      REDIS_URL: redis://localhost:6379/0
-
-      # --- Required by app.core.config ---
-      # Use long random-ish strings to avoid the "changethis" warning being
-      # treated as an error by any future strict-mode check.
-      SECRET_KEY: ci-test-secret-key-not-for-production-use-32b
-      FIRST_SUPERUSER: admin@example.com
-      FIRST_SUPERUSER_PASSWORD: ci-test-password-not-for-production
-      EMAILS_FROM_EMAIL: noreply@example.com
-      ENVIRONMENT: local
-      PROJECT_NAME: SkyLab-ci
-      BACKEND_CORS_ORIGINS: '["http://localhost"]'
-
-      # --- Proxmox: tests must mock these; values are placeholders ---
-      PROXMOX_HOST: proxmox.invalid
-      PROXMOX_USER: root@pam
-      PROXMOX_PASSWORD: not-a-real-password
-      PROXMOX_VERIFY_SSL: "false"
-      PROXMOX_ISO_STORAGE: local
-      PROXMOX_DATA_STORAGE: local-lvm
-
-      # --- Logging: keep CI logs human-readable ---
-      LOG_LEVEL: WARNING
-      LOG_JSON: "false"
-
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -122,18 +123,91 @@ jobs:
         run: uv run bash scripts/prestart.sh
 
       - name: Run pytest with coverage
+        # Stress tests run in the non-blocking performance job below
         run: |
-          uv run coverage run -m pytest tests/ -v --tb=short
+          uv run coverage run -m pytest tests/ -v --tb=short -m "not performance"
           uv run coverage xml -o coverage.xml
           uv run coverage report
 
       - name: Upload coverage artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-coverage
           path: backend/coverage.xml
           retention-days: 14
+
+  # Concurrency stress tests (marker `performance`) time requests on a shared
+  # GitHub runner, so they swing with the runner image: 20261025 pushed the
+  # p95 past the limit with no code change. They stay out of ci-pass, so a
+  # failure shows as a red check on the PR but does not block the merge.
+  performance:
+    name: pytest performance (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    # Same services as the pytest job; keep the two in sync
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpass
+          # IMPORTANT: name MUST contain "test" / "pytest" / "ci" so the
+          # safety guard in tests/conftest.py allows it on localhost.
+          POSTGRES_DB: app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies (incl. dev)
+        run: uv sync --frozen
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "Postgres is ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres did not become ready in time"; exit 1
+
+      - name: Run prestart (alembic upgrade + initial data)
+        run: uv run bash scripts/prestart.sh
+
+      - name: Run performance tests
+        run: uv run pytest tests/ -v --tb=short -m performance
 
   lint:
     name: ruff + mypy
@@ -144,8 +218,8 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -157,7 +231,8 @@ jobs:
         run: uv run mypy . || true
         # mypy is currently noisy; flip to blocking once errors are cleaned up
 
-  # Summary job — name must match the required status check in branch protection
+  # Summary job — name must match the required status check in branch protection.
+  # The performance job is deliberately not listed in needs.
   ci-pass:
     name: Backend Tests
     runs-on: ubuntu-latest

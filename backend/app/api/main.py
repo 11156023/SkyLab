@@ -10,6 +10,7 @@ from app.api.routes import (
     course_environments,
     courses,
     desktop_client,
+    feedback,
     firewall,
     gateway,
     governance,
@@ -90,6 +91,7 @@ api_router.include_router(teacher_judge_sessions.router)
 api_router.include_router(templates.router)
 api_router.include_router(desktop_client.router)
 api_router.include_router(policies.router)
+api_router.include_router(feedback.router)
 
 
 if settings.ENVIRONMENT == "local":

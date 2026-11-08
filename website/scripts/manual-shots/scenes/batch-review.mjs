@@ -18,7 +18,6 @@ const decision = (s) => s.page.locator('[data-guide="batch-review-decision"]');
 const notes = (s) => decision(s).locator("textarea");
 const btn = (s, en, zh) => decision(s).getByRole("button", { name: s.t(en, zh), exact: true });
 const band = (height) => ({ crop: { ...MAIN, height }, scroll: false });
-const C = { crop: MAIN };
 const CS = { crop: MAIN, scroll: false };
 // Target whose outline sits dy px inside the element, for list rows that touch each other.
 const inset = (loc, dy = 5) => ({

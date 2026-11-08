@@ -15,7 +15,6 @@ from app.infrastructure.vnc.handshake import (
     upstream_handshake,
 )
 from app.infrastructure.vnc.messages import (
-    CLIENT_QEMU_TYPE,
     RfbStreamError,
     _NeedMore,
     _Reader,
@@ -90,6 +89,3 @@ def test_reader_u32_and_need_more() -> None:
     assert reader.pos == 4
     with pytest.raises(_NeedMore):
         reader.u32()
-
-
-_QEMU_KEY = bytes([CLIENT_QEMU_TYPE, 0]) + bytes(10)

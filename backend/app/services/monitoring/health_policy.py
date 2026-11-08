@@ -94,6 +94,8 @@ def gateway_status(
         days_left = (expires_at - now).total_seconds() / 86400
         if days_left < 0:
             expiring.append(f"{cert.get('name')} 已過期")
+        elif days_left < 1:
+            expiring.append(f"{cert.get('name')} 剩不到 1 天到期")
         elif days_left < GATEWAY_CERT_WARN_DAYS:
             expiring.append(f"{cert.get('name')} 剩 {int(days_left)} 天到期")
     if expiring:

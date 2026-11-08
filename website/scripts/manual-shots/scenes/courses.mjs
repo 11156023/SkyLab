@@ -1,5 +1,5 @@
 // Manual page: manual/courses.md (student view of My Courses, a course, a week)
-import { D, H, MIN, NOW, ago, iso } from "../lib/mock.mjs";
+import { D, H, NOW, iso } from "../lib/mock.mjs";
 
 const PATH = "p-linux";
 

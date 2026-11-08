@@ -1,0 +1,5 @@
+# Workflows and the scripts the self-hosted runner executes need a maintainer's review:
+# the "default" ruleset on main requires code owner review.
+# See website/guides/deployment.md, "Restricting the runner".
+/.github/  @jerry102039 @mebius-gits @1Ray0 @young878787
+/scripts/  @jerry102039 @mebius-gits @1Ray0 @young878787

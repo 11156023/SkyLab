@@ -44,13 +44,19 @@ function CertificateStatusCard({ status, error, loading, onRefresh }) {
     else if (status.cert_valid === false || status.key_valid === false) warnings.push(t("GatewayPage.certWarnInvalid"));
     else if (status.key_matches === false) warnings.push(t("GatewayPage.certWarnKeyMismatch"));
 
+    /* daysUntil 無條件捨去：0 是還剩不到一天，不能寫成「剩 0 天」；負數是已過期 */
     const days = daysUntil(status.expires_at);
     if (days !== null && days < 0) warnings.push(t("GatewayPage.certWarnExpired"));
+    else if (days === 0) warnings.push(t("GatewayPage.certWarnLessThanDay"));
     else if (days !== null && days < CERT_WARN_DAYS) warnings.push(t("GatewayPage.certWarnExpiring", { days }));
 
     const date = formatDate(status.expires_at);
+    const expiresValue = !date ? "—"
+      : days !== null && days < 0 ? t("GatewayPage.certStatusExpiredValue", { date })
+      : days === 0 ? t("GatewayPage.certStatusLessThanDay", { date })
+      : t("GatewayPage.certStatusExpiresValue", { date, days });
     details.push(
-      [t("GatewayPage.certStatusExpires"), date ? t("GatewayPage.certStatusExpiresValue", { date, days: Math.max(days ?? 0, 0) }) : "—"],
+      [t("GatewayPage.certStatusExpires"), expiresValue],
       [t("GatewayPage.certStatusKey"), status.key_matches === true ? t("GatewayPage.certStatusKeyOk") : t("GatewayPage.certStatusKeyBad")],
       [t("GatewayPage.certStatusNames"), status.dns_names?.length ? status.dns_names.join(", ") : "—"],
       [t("GatewayPage.certStatusCovered"), status.covered_domains?.length ? status.covered_domains.join(", ") : "—"],

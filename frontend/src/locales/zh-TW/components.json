@@ -229,6 +229,8 @@
   "ConnectionDialog.domainTaken": "這個網址已被使用，請換一個",
   "ConnectionDialog.domainUnavailable": "目前無法用網址發布（管理員尚未完成網域或 Gateway 設定）",
   "ConnectionDialog.enableHttps": "啟用 HTTPS（使用管理員設定的憑證）",
+  "ConnectionDialog.allowIndexing": "允許 Google 等搜尋引擎收錄這個網址",
+  "ConnectionDialog.allowIndexingHint": "預設不收錄，想讓別人搜尋得到的個人網站或作品再勾選。不收錄只是請搜尋引擎不要列出，知道網址的人仍然連得到。",
   "ConnectionDialog.commonPorts": "常用 port",
   "ConnectionDialog.externalPlaceholder": "例如 2222",
   "ConnectionDialog.externalPort": "對外 port",

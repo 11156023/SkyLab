@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, time
-from typing import Any
 
 import pytest
 from fastapi import HTTPException
@@ -22,7 +21,6 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRun,
     TeacherJudgeScriptRunStatus,
 )
-from app.models.teacher_judge_session import TeacherJudgeSession
 from app.models.teacher_judge_student_submission import (
     TeacherJudgeStudentSubmission,
     TeacherJudgeSubmissionItem,

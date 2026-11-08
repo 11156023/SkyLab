@@ -7,7 +7,6 @@ import { frame, useResourceMgmt, useTemplates } from "../mocks/resadmin.mjs";
 const WIDE = { x: 340, y: 24, width: 1520, height: 852 };
 const MAIN = WIDE;
 
-const C = { crop: MAIN };
 const CS = { crop: MAIN, scroll: false };
 const band = (height, y = 24) => ({ crop: { ...MAIN, y, height }, scroll: false });
 

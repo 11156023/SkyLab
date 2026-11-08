@@ -128,7 +128,16 @@ class CloudflareAPIClient:
         return payload
 
     def verify_token(self) -> dict[str, Any]:
-        payload = self._request("GET", "/user/tokens/verify")
+        """驗證使用者層級（My Profile → API Tokens）的 token。"""
+        return self._verify("/user/tokens/verify")
+
+    def verify_account_token(self, account_id: str) -> dict[str, Any]:
+        """驗證帳戶層級（Account → API Tokens）的 token：這種 token 打 /user/tokens/verify
+        會回 1000 Invalid API Token，要用帳戶端點。"""
+        return self._verify(f"/accounts/{account_id.strip()}/tokens/verify")
+
+    def _verify(self, path: str) -> dict[str, Any]:
+        payload = self._request("GET", path)
         result = payload.get("result")
         if not isinstance(result, dict):
             raise UpstreamServiceError("Cloudflare 驗證結果格式不正確")

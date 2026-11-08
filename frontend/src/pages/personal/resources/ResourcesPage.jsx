@@ -26,6 +26,7 @@ import { useQueryView } from "../../../hooks/useQueryLoadState";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
 import { LIVE_STATUSES, isRowBackgroundClick, machineSpecLabel, resourceRowKey, statusAfterAction } from "./resourceRows";
+import { isExpiryFromWindow } from "./detail/lifecycleFormat";
 import QuotaUsageBar from "../../../components/QuotaUsageBar/QuotaUsageBar";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -64,10 +65,6 @@ function formatDate(isoStr) {
   return fmt.formatDate(isoStr, null);
 }
 
-function formatDatetime(isoStr) {
-  return fmt.formatDateTime(isoStr, null);
-}
-
 /* 到期日照字面顯示，小字附本地時間的實際截止時刻（後端以到期日 00:00 UTC 為界） */
 function ExpiryDateValue({ value }) {
   const expiry = fmt.formatExpiryDate(value);
@@ -93,6 +90,10 @@ function StatusBadge({ status }) {
 
 /* ── Creating placeholder row ── */
 
+/* 開始時間剛過還沒開始建立是正常的：排程器每 60 秒才掃一次，立即模式的 start_at
+   就是送出當下、要等 worker 接手才變 running。超過這段寬限才算超時 */
+const OVERDUE_GRACE_MS = 5 * 60_000;
+
 /** 依申請階段決定 placeholder 的狀態顯示（開通中 / 超時 / 失敗…） */
 function getCreatingDisplay(req, t) {
   if (req.status === "pending") {
@@ -104,9 +105,10 @@ function getCreatingDisplay(req, t) {
   if (req.provisioning_status === "running") {
     return { label: t("CreatingRow.statusProvisioning"), color: "info", spin: true };
   }
-  // approved 等待排程開機：start_at 已過但仍未開始建立 → 超時
-  if (req.start_at && new Date(req.start_at).getTime() < Date.now()) {
-    const overdueMin = Math.floor((Date.now() - new Date(req.start_at).getTime()) / 60_000);
+  // approved 等待排程開機：start_at 已過寬限仍未開始建立 → 超時
+  const lateMs = req.start_at ? Date.now() - new Date(req.start_at).getTime() : 0;
+  if (lateMs > OVERDUE_GRACE_MS) {
+    const overdueMin = Math.floor(lateMs / 60_000);
     const overdueLabel = overdueMin >= 60
       ? t("CreatingRow.overdueHoursLabel", { count: Math.floor(overdueMin / 60) })
       : t("CreatingRow.overdueMinutesLabel", { count: overdueMin });
@@ -118,6 +120,14 @@ function getCreatingDisplay(req, t) {
 function formatMemory(memoryMb) {
   if (memoryMb == null) return null;
   return memoryMb >= 1024 ? `${memoryMb / 1024} GB` : `${memoryMb} MB`;
+}
+
+/* 到期日欄跟機器開出來後一致（到期日 → 核准時段結束 → 無期限），不放開始時間 */
+function CreatingExpiryValue({ request }) {
+  const { t } = useTranslation("personal");
+  if (request.expiry_date) return <ExpiryDateValue value={request.expiry_date} />;
+  if (request.end_at) return formatDate(request.end_at);
+  return <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>;
 }
 
 function CreatingRow({ request, onCancelled }) {
@@ -177,7 +187,7 @@ function CreatingRow({ request, onCancelled }) {
         </span>
       </td>
       <td className={styles.td}><span className={styles.muted}>N/A</span></td>
-      <td className={styles.td}>{formatDatetime(request.start_at) ?? formatDatetime(request.created_at)}</td>
+      <td className={styles.td}><CreatingExpiryValue request={request} /></td>
       <td className={styles.td}>{request.assigned_node ?? request.desired_node ?? t("CreatingRow.notAssigned")}</td>
       <td className={styles.td}>
         <button type="button" className={styles.cancelBtn} disabled={cancelling} onClick={handleCancel}>
@@ -577,13 +587,14 @@ function ResourceIpCell({ rowState }) {
 function ResourceExpiryCell({ rowState }) {
   const { t } = useTranslation("personal");
   const { resource } = rowState;
-  return resource.expiry_date ? <ExpiryDateValue value={resource.expiry_date} />
-    : resource.window_end_at ? (
+  /* 到期日與核准時段取較早者：時段先結束就顯示時段迄日 */
+  return isExpiryFromWindow(resource) ? (
       <span className={resource.start_blocked_reason === "window_ended" ? styles.periodEnded : undefined}>
         {formatDate(resource.window_end_at)}
         {resource.start_blocked_reason === "window_ended" && <small>{t("ResourceRow.windowEnded")}</small>}
       </span>
-    ) : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>;
+    ) : resource.expiry_date ? <ExpiryDateValue value={resource.expiry_date} />
+    : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>;
 }
 
 function ResourceNodeCell({ rowState }) {

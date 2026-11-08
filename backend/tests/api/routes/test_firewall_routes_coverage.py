@@ -20,6 +20,7 @@ from app.schemas.firewall import (
     LayoutUpdate,
     PortSpec,
     PublishedServiceCreate,
+    PublishedServiceIndexingUpdate,
     PublishedServiceRef,
     PublishedServiceUpdate,
 )
@@ -464,3 +465,55 @@ def test_unpublish_service_errors(
             _resource_info=RESOURCE,
         )
     assert info.value.status_code == status
+
+
+def test_set_service_indexing_success(
+    monkeypatch: pytest.MonkeyPatch, audits: list, access: list
+) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        fw.reverse_proxy_service,
+        "set_rule_indexing",
+        lambda session, vmid, port, allow: calls.append((vmid, port, allow)),
+    )
+    result = fw.set_service_indexing(
+        vmid=7,
+        body=PublishedServiceIndexingUpdate(port=80, allow_indexing=True),
+        session=SESSION,
+        current_user=_user(),
+        _resource_info=RESOURCE,
+    )
+    assert result.message
+    assert calls == [(7, 80, True)]
+    # 跟發布、撤下一樣要能管理這台機器（課堂機對學生唯讀）
+    assert ("mgmt", 7) in access
+    assert audits[0]["action"] == fw.AuditAction.reverse_proxy_rule_update
+    assert "allow_indexing=True" in audits[0]["details"]
+
+
+@pytest.mark.parametrize(
+    ("exc", "status"),
+    [
+        (NotFoundError("missing"), 404),
+        (BadRequestError("bad"), 400),
+        (ProxmoxError("down"), 502),
+    ],
+)
+def test_set_service_indexing_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    audits: list,
+    access: list,
+    exc: Exception,
+    status: int,
+) -> None:
+    monkeypatch.setattr(fw.reverse_proxy_service, "set_rule_indexing", _raiser(exc))
+    with pytest.raises(HTTPException) as info:
+        fw.set_service_indexing(
+            vmid=7,
+            body=PublishedServiceIndexingUpdate(port=80, allow_indexing=True),
+            session=SESSION,
+            current_user=_user(),
+            _resource_info=RESOURCE,
+        )
+    assert info.value.status_code == status
+    assert audits == []

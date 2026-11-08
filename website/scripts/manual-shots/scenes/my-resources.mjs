@@ -1,7 +1,7 @@
 // Manual page: manual/my-resources.md
 import { D, H, MIN, ago, later } from "../lib/mock.mjs";
 import {
-  LXC, VM, VNC_FIX, desktopJpeg, groupResources, quickSession, registerResources, studentMachines,
+  VNC_FIX, desktopJpeg, groupResources, quickSession, registerResources, studentMachines,
   teacherMachines, termServer, vncServer,
 } from "../mocks/resources.mjs";
 

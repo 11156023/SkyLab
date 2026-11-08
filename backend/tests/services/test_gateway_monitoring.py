@@ -70,6 +70,15 @@ def test_gateway_status_attention_for_expiring_or_expired_certs() -> None:
     assert message is not None and "換新" in message and "certbot" not in message
 
 
+def test_gateway_status_cert_with_less_than_a_day_left_is_not_zero_days() -> None:
+    probe = _probe(
+        certificates=[{"name": "today.example.com", "expires_at": NOW + timedelta(hours=5)}]
+    )
+    status, detail, _ = health_policy.gateway_status(probe, now=NOW)
+    assert status == "attention"
+    assert detail == "today.example.com 剩不到 1 天到期"
+
+
 def test_gateway_status_down_wins_over_cert_attention() -> None:
     probe = _probe(
         nginx="failed",

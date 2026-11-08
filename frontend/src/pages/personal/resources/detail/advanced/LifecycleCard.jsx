@@ -14,7 +14,7 @@ import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvi
 import { SpecChangeRequestsService } from "../../../../../services/specChangeRequests";
 import { useMySpecChangeRequestsQuery, useSpecChangeRequestCacheUpdater } from "../../../../../queries/specChangeRequests";
 import { focusInvalidField } from "../../../../../utils/focusField";
-import { AUTO_STOP_REASON_KEYS, effectiveExpiryIso, formatDate, formatDateTime } from "../lifecycleFormat";
+import { AUTO_STOP_REASON_KEYS, effectiveExpiryIso, formatDate, formatDateTime, isExpiryFromWindow } from "../lifecycleFormat";
 
 /* 延長日期的下限跟後端一樣以 UTC 日期比較，不走 lifecycleFormat 的本地時區拆解 */
 function tomorrowIso() {
@@ -157,7 +157,7 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
 
   /* 到期日與核准使用時段取較早者；兩者都沒有＝不限期，沒有東西可延長 */
   const currentExpiry = effectiveExpiryIso(resource);
-  const expiryFromWindow = Boolean(currentExpiry) && currentExpiry !== resource?.expiry_date;
+  const expiryFromWindow = isExpiryFromWindow(resource);
   const canExtend = canManage
     && Boolean(currentExpiry)
     && resource?.can_extend !== false
@@ -249,7 +249,9 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
                   ? t("LifecycleCard.notIdle")
                   : idleHours >= 24
                     ? t("LifecycleCard.idleForDays", { count: Math.floor(idleHours / 24) })
-                    : t("LifecycleCard.idleForHours", { count: idleHours })}
+                    : idleHours >= 1
+                      ? t("LifecycleCard.idleForHours", { count: idleHours })
+                      : t("LifecycleCard.idleUnderHour")}
               </span>
               {idleHours != null && (
                 <span className={styles.mutedText}>

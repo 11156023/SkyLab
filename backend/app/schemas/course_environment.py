@@ -24,7 +24,10 @@ MAX_DRAFT_BYTES = 262144
 # 開課時後面還要接「-」加 16 碼亂碼，一段網址的上限是 63 字。前端
 # connectionPayload.js 用同一條規則即時檢查，改一邊要改另一邊
 HOSTNAME_PREFIX_MAX_LENGTH = 40
-HOSTNAME_PREFIX_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
+# 頭尾各一個英數字，中間最多 MAX - 2 個英數或連字號
+HOSTNAME_PREFIX_PATTERN = re.compile(
+    rf"^[a-z0-9](?:[a-z0-9-]{{0,{HOSTNAME_PREFIX_MAX_LENGTH - 2}}}[a-z0-9])?$"
+)
 
 
 class EnvironmentNodeIn(BaseModel):

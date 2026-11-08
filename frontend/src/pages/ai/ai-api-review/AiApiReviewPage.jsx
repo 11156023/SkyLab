@@ -303,7 +303,6 @@ const requestColumns = columnHelper.columns(dataColumns);
 const selectableColumns = columnHelper.columns([selectColumn, ...dataColumns]);
 
 /* ── Main ── */
-const REQUEST_TAB_KEYS = ["pending", "approved", "rejected", "all"];
 /* 後端 /ai-api/requests 的 limit 上限 */
 const REQUEST_LIST_LIMIT = 100;
 const EMPTY = Object.freeze([]);

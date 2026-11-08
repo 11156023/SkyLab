@@ -1,5 +1,5 @@
 // Manual page: manual/gateway.md
-import { D, H, MIN, ago, later } from "../lib/mock.mjs";
+import { D, MIN, ago, later } from "../lib/mock.mjs";
 import { GATEWAY_PUBLIC_IP, SUBNET } from "../mocks/network.mjs";
 
 const PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK7pV3f0Qm2xYd8sRz4LwHq9cNbT1eJ5uGv6FhXo2Ak3 skylab@platform";

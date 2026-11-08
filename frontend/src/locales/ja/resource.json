@@ -130,6 +130,8 @@
   "RequestReviewPage.nodeNotEvaluated": "未評価",
   "RequestReviewPage.specChangeTitle": "VMID {{vmid}} のスペック変更",
   "RequestReviewPage.specChangeTitleNamed": "{{name}}（VMID {{vmid}}）のスペック変更",
+  "RequestReviewPage.expiryChangeTitle": "VMID {{vmid}} の有効期限延長",
+  "RequestReviewPage.expiryChangeTitleNamed": "{{name}}（VMID {{vmid}}）の有効期限延長",
   "RequestReviewPage.specResourceGoneHint": "このマシンは削除済みのため承認できません。申請を却下してください。",
   "RequestReviewPage.applyResultLabel": "適用結果",
   "RequestReviewPage.applyResultAppliedAt": "（{{time}} 適用）",

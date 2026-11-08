@@ -13,6 +13,7 @@ class ReverseProxyRuleCreate(BaseModel):
     hostname_prefix: str = Field(default="", max_length=190)
     internal_port: int = Field(ge=1, le=65535)
     enable_https: bool = True
+    allow_indexing: bool = False
 
 
 class ReverseProxyRuleUpdate(ReverseProxyRuleCreate):
@@ -29,6 +30,7 @@ class ReverseProxyRulePublic(BaseModel):
     zone_id: str | None = None
     internal_port: int
     enable_https: bool
+    allow_indexing: bool = False
     dns_provider: str
     created_at: datetime
 

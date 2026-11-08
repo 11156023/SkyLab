@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.exc import IntegrityError
 
 from app.core.i18n import t
-from app.exceptions import BadRequestError, ProxmoxError
+from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.schemas.cloudflare import CloudflareZonePublic
 from app.schemas.reverse_proxy import (
     DomainAvailability,
@@ -212,6 +212,7 @@ def apply_reverse_proxy_rule(
     hostname_prefix: str,
     internal_port: int,
     enable_https: bool = True,
+    allow_indexing: bool = False,
 ) -> "ReverseProxyRule":
     """建立反向代理規則：寫入 DB + 同步 nginx，回傳建好的規則（供呼叫端整批回滾）。"""
     from app.models import Resource
@@ -244,6 +245,7 @@ def apply_reverse_proxy_rule(
         cloudflare_record_id=None,
         internal_port=internal_port,
         enable_https=enable_https,
+        allow_indexing=allow_indexing,
         dns_provider="cloudflare",
     )
     try:
@@ -507,6 +509,7 @@ def apply_reverse_proxy_rule_for_domain(
     domain: str,
     internal_port: int,
     enable_https: bool = True,
+    allow_indexing: bool = False,
 ) -> "ReverseProxyRule":
     """以完整網域建立反向代理規則（自動反查 Cloudflare Zone）。
 
@@ -521,7 +524,44 @@ def apply_reverse_proxy_rule_for_domain(
         hostname_prefix=hostname_prefix,
         internal_port=internal_port,
         enable_https=enable_https,
+        allow_indexing=allow_indexing,
     )
+
+
+def set_rule_indexing(
+    session: object, vmid: int, internal_port: int, allow_indexing: bool
+) -> "ReverseProxyRule":
+    """切換一條對外網址是否讓搜尋引擎收錄：只改旗標再重建 nginx，網址、DNS 與防火牆不動。
+
+    Gateway 同步失敗就把旗標改回原值再 raise：不能讓 DB 顯示已改、Gateway 卻還是舊設定。
+    """
+    from app.repositories import reverse_proxy as rp_repo
+
+    rule = next(
+        (
+            r
+            for r in rp_repo.list_rules_by_vmid(session, vmid)  # type: ignore[arg-type]
+            if r.internal_port == internal_port
+        ),
+        None,
+    )
+    if rule is None:
+        raise NotFoundError(
+            t("firewall.serviceNotFound", port=internal_port, protocol="tcp")
+        )
+    if rule.allow_indexing == allow_indexing:
+        return rule
+
+    previous = rule.allow_indexing
+    rule.allow_indexing = allow_indexing
+    rp_repo.update_rule(session, rule)  # type: ignore[arg-type]
+    try:
+        _sync_nginx(session)
+    except Exception:
+        rule.allow_indexing = previous
+        rp_repo.update_rule(session, rule)  # type: ignore[arg-type]
+        raise
+    return rule
 
 
 def _cleanup_managed_dns_record(session: object, rule) -> None:

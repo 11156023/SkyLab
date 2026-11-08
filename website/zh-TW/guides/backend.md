@@ -127,7 +127,7 @@ uv run bash ./scripts/test.sh        # pytest 含覆蓋率 → htmlcov/
 
 測試在主機上跑（映像裡沒有 `tests/`）。`tests/conftest.py` 的 `db` fixture 會拒絕對名稱不像測試庫的資料庫執行；設 `PYTEST_ALLOW_NON_TEST_DB=1` 可覆蓋、`PYTEST_ENABLE_DB_CLEANUP=1` 可啟用清理。測試一律停用 Sentry。純函式層（`domain/`、`services/*/*policy.py` 這些模組、`tests/performance/` 層 2）不需任何外部依賴。
 
-CI 以 Python 3.11 跑測試（`.github/workflows/backend-tests.yml`）；正式映像是 `python:3.15-slim`。
+CI 以 Python 3.11 跑測試（`.github/workflows/backend-tests.yml`）；正式映像是 `python:3.15-slim`。併發壓力測試（`tests/performance/`，標記 `performance`）另在一個不擋合併的 job 跑：它們的延遲門檻取決於 GitHub 共用 runner 的速度，失敗時 PR 上會出現紅叉，但不會擋合併。
 
 ## 程式碼品質
 

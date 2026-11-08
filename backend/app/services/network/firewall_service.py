@@ -20,6 +20,7 @@ from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import get_proxmox_api_for_node
 from app.infrastructure.proxmox.operations import ResourceType
+from app.models.reverse_proxy_rule import ReverseProxyRule
 from app.models.teaching_class import TeachingClass
 from app.models.user import User
 from app.repositories import firewall_layout as layout_repo
@@ -920,6 +921,7 @@ def create_connection(
                             domain=domain,
                             internal_port=port_spec.port,
                             enable_https=enable_https,
+                            allow_indexing=port_spec.allow_indexing,
                         )
                     )
                 elif port_spec.external_port is not None:
@@ -1364,7 +1366,7 @@ def _enrich_edges_from_db(
 ) -> None:
     """將 Internet→VM edge 中的 port specs 充實 DB 資訊。
     - NatRule → 填入 external_port
-    - ReverseProxyRule → 填入 domain + enable_https
+    - ReverseProxyRule → 填入 domain + enable_https + allow_indexing
     """
     from app.repositories import nat_rule as nat_repo
     from app.repositories import reverse_proxy as rp_repo
@@ -1386,10 +1388,10 @@ def _enrich_edges_from_db(
             nat_lookup[(r.vmid, r.internal_port, r.protocol)] = r
 
     # 建立快查 dict：(vmid, internal_port) → ReverseProxyRule
-    rp_lookup: dict[tuple[int, int], object] = {}
-    for r in rp_rules:
-        if r.vmid in vmids:
-            rp_lookup[(r.vmid, r.internal_port)] = r
+    rp_lookup: dict[tuple[int, int], ReverseProxyRule] = {}
+    for proxy_rule in rp_rules:
+        if proxy_rule.vmid in vmids:
+            rp_lookup[(proxy_rule.vmid, proxy_rule.internal_port)] = proxy_rule
 
     # 充實 port specs
     for edge in inbound_edges:
@@ -1404,6 +1406,7 @@ def _enrich_edges_from_db(
             if rp_rule:
                 port_spec.domain = rp_rule.domain
                 port_spec.enable_https = rp_rule.enable_https
+                port_spec.allow_indexing = rp_rule.allow_indexing
                 continue
 
             # 再查 NAT
@@ -1648,6 +1651,7 @@ def _service_from_spec(
         mode=mode,
         domain=spec.domain,
         enable_https=spec.enable_https,
+        allow_indexing=bool(spec.domain) and spec.allow_indexing,
         external_port=spec.external_port,
         url=_service_url(spec.domain, spec.enable_https),
         firewall_rule_present=firewall_rule_present,
@@ -1693,6 +1697,7 @@ def list_vm_published_services(
                     protocol="tcp",
                     domain=rp_rule.domain,
                     enable_https=rp_rule.enable_https,
+                    allow_indexing=rp_rule.allow_indexing,
                 ),
                 firewall_rule_present=False,
             )
@@ -1826,6 +1831,7 @@ def replace_vm_service(
         external_port=old_service.external_port,
         domain=old_service.domain,
         enable_https=old_service.enable_https,
+        allow_indexing=old_service.allow_indexing,
     )
     unpublish_vm_service(vmid, current, session)
     spec = replacement.to_port_spec()

@@ -229,6 +229,8 @@
   "ConnectionDialog.domainTaken": "この URL はすでに使われています。別のものを選んでください",
   "ConnectionDialog.domainUnavailable": "現在 URL での公開はできません（管理者がドメインまたはゲートウェイの設定を完了していません）",
   "ConnectionDialog.enableHttps": "HTTPS を有効化（管理者が設定した証明書を使用）",
+  "ConnectionDialog.allowIndexing": "Google などの検索エンジンにこの URL の掲載を許可する",
+  "ConnectionDialog.allowIndexingHint": "既定ではオフです。検索で見つけてほしい個人サイトや作品のときにオンにします。オフは検索エンジンに掲載しないよう求めるだけで、URL を知っている人は引き続きアクセスできます。",
   "ConnectionDialog.commonPorts": "よく使うポート",
   "ConnectionDialog.externalPlaceholder": "例：2222",
   "ConnectionDialog.externalPort": "外部ポート",

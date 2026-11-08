@@ -641,6 +641,36 @@
   color: var(--color-text-muted);
 }
 
+/* ── 使用者回饋（「關於」卡下方）── */
+/* 類型切換、內容框、底部「字數＋送出」各一列；欄位用全站表單 mixin，內容框固定高 */
+.feedbackForm {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.feedbackField {
+  @include form-field;
+
+  textarea {
+    @include form-control;
+    min-height: 132px;
+    line-height: $line-height-base;
+  }
+}
+
+.feedbackFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+}
+
+.feedbackCount {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .aboutHint {
   margin: 4px 0 0;
   font-size: $font-size-12;

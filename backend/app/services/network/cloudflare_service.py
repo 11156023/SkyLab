@@ -92,9 +92,35 @@ def update_config(
     return _to_public_config(config)
 
 
+def _verify_token(
+    client: CloudflareAPIClient, config: CloudflareConfig
+) -> dict[str, Any]:
+    """先當使用者層級 token 驗證；失敗且有 account_id 時再當帳戶層級 token 驗證。
+
+    帳戶層級 token 打 /user/tokens/verify 會回「1000: Invalid API Token」，但 zone／DNS
+    操作都正常（2026-11-06 ntub 實測），所以兩種端點都要試過才算驗證失敗。
+    """
+    account_id = _normalize_optional_text(config.account_id)
+    try:
+        return client.verify_token()
+    except BadRequestError as user_error:
+        if not account_id:
+            raise
+        try:
+            return client.verify_account_token(account_id)
+        except BadRequestError as account_error:
+            raise BadRequestError(
+                t(
+                    "cloudflare.tokenVerifyFailed",
+                    user_error=str(user_error),
+                    account_error=str(account_error),
+                )
+            ) from account_error
+
+
 def test_connection(session: Session) -> CloudflareConnectionTestResult:
     client, config = _build_client_from_session(session)
-    verification = client.verify_token()
+    verification = _verify_token(client, config)
     token_status = str(verification.get("status") or "unknown")
     config_repo.mark_cloudflare_config_verified(session, config)
     return CloudflareConnectionTestResult(

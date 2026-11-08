@@ -79,6 +79,25 @@ it("opens the delete-account dialog in the shared Modal, gates the button on the
   expect(buttonByText(dialog(), "DangerZoneTab.confirmDelete").disabled).toBe(true);
 });
 
+it("closes the delete-account dialog when the backend refuses the deletion", async () => {
+  deleteAccount.mockRejectedValue(new Error("無法刪除仍擁有已配置資源的使用者"));
+  await act(async () => root.render(<AccountSettingsPage />));
+  await act(async () => buttonByText(host, "DangerZoneTab.deleteAccount").click());
+
+  const box = dialog();
+  await act(async () => typeInto(box.querySelector("input"), "DangerZoneTab.confirmWord"));
+  await act(async () => buttonByText(dialog(), "DangerZoneTab.confirmDelete").click());
+  await act(async () => wait(200));
+
+  expect(deleteAccount).toHaveBeenCalledTimes(1);
+  expect(logout).not.toHaveBeenCalled();
+  /* 被拒就收起確認框；再開時確認字已清空、按鈕回到停用 */
+  expect(dialog()).toBeNull();
+  await act(async () => buttonByText(host, "DangerZoneTab.deleteAccount").click());
+  expect(dialog().querySelector("input").value).toBe("");
+  expect(buttonByText(dialog(), "DangerZoneTab.confirmDelete").disabled).toBe(true);
+});
+
 it("submits the TOTP-disable form with the six digits and closes the dialog", async () => {
   disableTotp.mockResolvedValue({});
   await act(async () => root.render(<AccountSettingsPage />));

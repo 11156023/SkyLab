@@ -1,3 +1,4 @@
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -39,6 +40,8 @@ from app.services.user import audit_service
 from app.services.user.password_policy import ensure_password_complexity
 from app.services.user.registration_policy_service import get_policy
 from app.utils import generate_new_account_email, send_email
+
+logger = logging.getLogger(__name__)
 
 _EMAIL_CHANGE_HOURS = 1
 _SIGNUP_VERIFICATION_HOURS = 24
@@ -163,11 +166,20 @@ def create_user(
         email_data = generate_new_account_email(
             email_to=user_in.email, username=user_in.email, password=user_in.password
         )
-        send_email(
-            email_to=user_in.email,
-            subject=email_data.subject,
-            html_content=email_data.html_content,
-        )
+        # 帳號已經 commit，歡迎信寄不出去不能把整個請求變成 500：管理員會以為沒建成功、
+        # 再按一次變 409。只記 ERROR，帳號照樣回傳。
+        try:
+            send_email(
+                email_to=user_in.email,
+                subject=email_data.subject,
+                html_content=email_data.html_content,
+            )
+        except Exception:
+            logger.exception(
+                "New-account email to %s failed; user %s was created anyway",
+                user_in.email,
+                user.id,
+            )
     return user
 
 

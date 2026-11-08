@@ -47,6 +47,7 @@ def test_openapi_keeps_reverse_proxy_rule_component() -> None:
         "zone_id",
         "internal_port",
         "enable_https",
+        "allow_indexing",
         "dns_provider",
         "created_at",
     }

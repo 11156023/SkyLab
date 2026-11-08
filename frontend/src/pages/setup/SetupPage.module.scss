@@ -497,9 +497,11 @@
 /* ── 動作列：分隔線與表單內容切開，上一步在左、主要動作在右 ── */
 /* 同列按鈕拉成一樣高：主要鈕（無框）比次要鈕（1px 框）矮 2px，
    stretch 讓「上一步／下一步」這類混搭的一列等高 */
+/* 左側是返回／登出這類次要鈕、右側是主要動作組；寬度不夠換行時用 wrap-reverse 讓第一行（左側鈕）
+   排到最下面，主要動作在上，不會變成「登出」孤零零壓在一排按鈕上方（預檢頁、初始化精靈、首次登入引導共用） */
 .actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: wrap-reverse;
   justify-content: space-between;
   align-items: stretch;
   gap: $spacing-8;

@@ -14,7 +14,7 @@ import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKin
 import KpiCard from "./KpiCard";
 import { coreSegments, gbSegments } from "./kpiBar";
 /* 自動關機原因與日期格式和進階設定的 LifecycleCard 共用 */
-import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime } from "./lifecycleFormat";
+import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime, isExpiryFromWindow } from "./lifecycleFormat";
 /* 到期天數與首頁終端機卡片共用同一份計算 */
 import { daysUntil } from "../../dashboard/terminalLines";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
@@ -266,7 +266,8 @@ export default function OverviewTab({ vmid, access = null }) {
   const windowRange = resource.window_start_at && resource.window_end_at
     ? `${formatDateTime(resource.window_start_at, lang)} – ${formatDateTime(resource.window_end_at, lang)}`
     : null;
-  const showWindowInHero = Boolean(windowRange) && !resource.expiry_date;
+  /* 到期日與核准時段取較早者：時段先結束（或沒有到期日）就用時段交代期限 */
+  const showWindowInHero = Boolean(windowRange) && isExpiryFromWindow(resource);
 
   const reasonKey = resource.auto_stop_reason ? AUTO_STOP_REASON_KEYS[resource.auto_stop_reason] : null;
   const roleKey = ROLE_KEYS[resource.access_role] ?? ROLE_KEYS.owner;

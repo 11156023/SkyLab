@@ -127,7 +127,7 @@ uv run bash ./scripts/test.sh        # pytest with coverage → htmlcov/
 
 The suite runs on the host (the image does not contain `tests/`). The `db` fixture in `tests/conftest.py` refuses to run against a database whose name does not look like a test database; set `PYTEST_ALLOW_NON_TEST_DB=1` to override and `PYTEST_ENABLE_DB_CLEANUP=1` to enable cleanup. Tests disable Sentry. Pure-function layers (`domain/`, the `services/*/*policy.py` modules, `tests/performance/` tier 2) run without any external dependency.
 
-CI runs the suite on Python 3.11 (`.github/workflows/backend-tests.yml`); the production image is `python:3.15-slim`.
+CI runs the suite on Python 3.11 (`.github/workflows/backend-tests.yml`); the production image is `python:3.15-slim`. The concurrency stress tests (`tests/performance/`, marker `performance`) run in a separate job that does not block merging: their latency limits depend on how fast the shared GitHub runner is, so a failure there shows as a red check on the pull request without blocking the merge.
 
 ## Code quality
 

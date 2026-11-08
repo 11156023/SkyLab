@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildFlow, focusEdges, isOutboundEdge } from "./buildFlow";
+import { buildFlow, focusEdges, isOutboundEdge, withPortIndexing } from "./buildFlow";
 
 /* 三台機器：一條對外開放、一條對外連線、一條內部互通 */
 const topology = {
@@ -104,5 +104,30 @@ describe("focusEdges 選中機器只看相關連線", () => {
     const agg = { id: "agg-group:x-102", source: "group:x", target: "102", hidden: false };
     const other = { id: "agg-group:x-103", source: "group:x", target: "103", hidden: false };
     expect(focusEdges([agg, other], "102").map((e) => e.hidden)).toEqual([false, true]);
+  });
+});
+
+describe("withPortIndexing 切換後就地更新面板上的那一條", () => {
+  const edge = {
+    source_vmid: null,
+    target_vmid: 150,
+    ports: [
+      { port: 80, protocol: "tcp", domain: "me.example.com", allow_indexing: false },
+      { port: 80, protocol: "udp" },
+      { port: 22, protocol: "tcp", external_port: 30022 },
+    ],
+  };
+
+  it("只改同 port 的 tcp 網址，其他 port 原封不動", () => {
+    const next = withPortIndexing(edge, edge.ports[0], true);
+    expect(next.ports[0].allow_indexing).toBe(true);
+    expect(next.ports[1]).toBe(edge.ports[1]);
+    expect(next.ports[2]).toBe(edge.ports[2]);
+  });
+
+  it("回傳新物件，不改到原本的拓撲資料", () => {
+    const next = withPortIndexing(edge, edge.ports[0], true);
+    expect(next).not.toBe(edge);
+    expect(edge.ports[0].allow_indexing).toBe(false);
   });
 });

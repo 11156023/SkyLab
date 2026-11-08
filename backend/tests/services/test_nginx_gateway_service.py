@@ -70,6 +70,10 @@ class _ProxyRule:
     vm_ip: str
     internal_port: int
     enable_https: bool
+    allow_indexing: bool = False
+
+
+_NOINDEX = '        add_header X-Robots-Tag "noindex, nofollow" always;'
 
 
 def test_build_http_config_https_rule_redirects_80_and_uses_admin_certificate() -> None:
@@ -115,6 +119,34 @@ def test_build_http_config_http_only_rule_proxies_on_80() -> None:
     assert "return 301" not in out
     assert "ssl_certificate" not in out
     assert "        proxy_pass http://10.10.0.3:3000;" in out
+
+
+@pytest.mark.parametrize("enable_https", [True, False])
+def test_build_http_config_vm_sites_ask_search_engines_not_to_index_by_default(
+    enable_https: bool,
+) -> None:
+    """機器的網站預設不讓搜尋引擎收錄：proxy 的回應一律帶 noindex（含機器自己沒送的情況）。"""
+    rule = _ProxyRule(vmid=3, domain="lab.example.com", vm_ip="10.10.0.3", internal_port=80, enable_https=enable_https)
+    out = nginx.build_http_config([rule], _CERT)
+
+    assert out.count(_NOINDEX) == 1
+    location = out[out.index("    location / {"):]
+    assert location.index(_NOINDEX) < location.index("    }")
+
+
+def test_build_http_config_vm_site_can_allow_indexing() -> None:
+    rules = [
+        _ProxyRule(vmid=3, domain="me.example.com", vm_ip="10.10.0.3", internal_port=80, enable_https=True, allow_indexing=True),
+        _ProxyRule(vmid=4, domain="lab.example.com", vm_ip="10.10.0.4", internal_port=80, enable_https=True),
+    ]
+    out = nginx.build_http_config(rules, _CERT, platform=_platform())
+
+    own = out[out.index("# cc-3-me-example-com (https)"):out.index("# cc-4-lab-example-com")]
+    other = out[out.index("# cc-4-lab-example-com (https)"):]
+    assert "X-Robots-Tag" not in own
+    assert _NOINDEX in other
+    # 平台入口的 noindex 由平台自己的 nginx 送，Gateway 這層不重複加
+    assert out.count("X-Robots-Tag") == 1
 
 
 # ─── server_names_hash ───────────────────────────────────────────────────────
