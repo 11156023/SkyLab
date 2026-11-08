@@ -603,15 +603,16 @@
   line-height: 1.5;
 }
 
-.prototypeBadge {
+/* 即時資料更新失敗（課堂監看熱力圖）：錯誤一律紅色，橘色只給待審核 */
+.failedBadge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   flex: 0 0 auto;
   padding: 5px 10px;
   border-radius: $radius-pill;
-  color: var(--color-pending);
-  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
 }
@@ -2621,7 +2622,7 @@
     padding-left: 16px;
   }
 
-  .prototypeBadge,
+  .failedBadge,
   .liveBadge {
     align-self: flex-start;
   }
