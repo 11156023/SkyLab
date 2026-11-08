@@ -94,6 +94,8 @@ test("a late response for the previously selected VM does not overwrite the curr
   expect(host.textContent).not.toContain("rule-of-A");
   expect(document.querySelector("[data-testid='loading']")).toBeNull();
 
+  /* 送出前先向後端抓最新清單比對（還是 B 的那條），刪除後重抓變空 */
+  fw.getVmRules.mockResolvedValueOnce([{ pos: 7, type: "in", action: "ACCEPT", comment: "rule-of-B" }]);
   fw.getVmRules.mockResolvedValue([]);
   await act(async () => document.querySelector("[title='RulesPanel.deleteRule']").click());
   await flush();
@@ -116,6 +118,8 @@ test("a failed first load shows the error; a failed reload after a write keeps t
   expect(host.textContent).toContain("keep-me");
 
   fw.updateVmRule.mockResolvedValue({});
+  /* 第一次是送出前的比對（清單沒變），第二次是寫入後的重抓（失敗） */
+  fw.getVmRules.mockResolvedValueOnce([{ pos: 1, type: "in", action: "ACCEPT", enable: 1, comment: "keep-me" }]);
   fw.getVmRules.mockRejectedValueOnce(new Error("reload failed"));
   await act(async () => document.querySelector("[aria-label='RulesPanel.enableSwitch']").click());
   await flush();

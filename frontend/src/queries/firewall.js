@@ -27,40 +27,52 @@ export function useFirewallTopologyQuery({ enabled = true, refetchInterval = LIS
   });
 }
 
+/*
+ * 單台機器的三個查詢預設只在打開時與寫入後抓（規則面板沿用原本行為）。
+ * 要背景刷新的地方（資源詳情的防火牆卡）自己傳 refetchInterval／refetchOnWindowFocus，
+ * 而且要自己處理「同一串失敗只提示一次」，不然每次重抓失敗都會再跳一次錯誤。
+ */
+
 /** 單台機器的規則清單（規則面板、資源詳情的防火牆卡） */
-export function useVmFirewallRulesQuery(vmid, { enabled, refetchInterval = false } = {}) {
+export function useVmFirewallRulesQuery(vmid, { enabled, refetchInterval = false, refetchOnWindowFocus = false } = {}) {
   return useQuery({
     queryKey: firewallKeys.vmRules(vmid),
     queryFn: () => getVmRules(vmid),
     enabled: enabled ?? (vmid != null),
     refetchInterval,
-    /* 只在打開時與寫入後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤 */
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus,
   });
 }
 
 /** 單台機器的防火牆選項（啟用狀態、預設策略） */
-export function useVmFirewallOptionsQuery(vmid, { enabled, refetchInterval = false } = {}) {
+export function useVmFirewallOptionsQuery(vmid, { enabled, refetchInterval = false, refetchOnWindowFocus = false } = {}) {
   return useQuery({
     queryKey: firewallKeys.vmOptions(vmid),
     queryFn: () => getVmOptions(vmid),
     enabled: enabled ?? (vmid != null),
     refetchInterval,
-    /* 只在打開時與寫入後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤 */
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus,
   });
 }
 
 /** 以單台機器為中心的迷你拓撲（資源詳情的防火牆卡） */
-export function useVmFirewallTopologyQuery(vmid, { enabled, refetchInterval = false } = {}) {
+export function useVmFirewallTopologyQuery(vmid, { enabled, refetchInterval = false, refetchOnWindowFocus = false } = {}) {
   return useQuery({
     queryKey: firewallKeys.vmTopology(vmid),
     queryFn: () => getVmTopology(vmid),
     enabled: enabled ?? (vmid != null),
     refetchInterval,
-    /* 只在打開時與寫入後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤 */
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus,
   });
+}
+
+/**
+ * 畫面上這條規則在最新清單裡是不是還在同一個位置、內容也沒變。
+ * 停用／刪除是用位置（pos）指定的，別人在前面插了規則、這邊又沒更新到時，同一個位置已經是別條。
+ */
+export function isSameRuleAt(latest, rule) {
+  const current = (latest ?? []).find((item) => item.pos === rule.pos);
+  return Boolean(current) && JSON.stringify(current) === JSON.stringify(rule);
 }
 
 export function useFirewallCacheUpdater() {
@@ -78,9 +90,16 @@ export function useFirewallCacheUpdater() {
     invalidate() {
       return queryClient.invalidateQueries({ queryKey: firewallKeys.all });
     },
-    /** 目前快取裡這台的規則（確認視窗按下確認時再對一次位置用） */
-    getVmRules(vmid) {
-      return queryClient.getQueryData(firewallKeys.vmRules(vmid));
+    /**
+     * 停用／刪除前向後端抓這台最新的規則清單（不看快取：背景刷新失敗時快取就是舊的，對不出差異），
+     * 抓到就寫回快取，畫面跟著換成最新的。
+     * 直接打 API、不經 fetchQuery：抓失敗時不把查詢標成失敗，不會再多跳一次「更新失敗」，
+     * 由呼叫端提示「這次沒有送出」。失敗時丟出原本的錯誤。
+     */
+    async fetchLatestVmRules(vmid) {
+      const latest = await getVmRules(vmid);
+      queryClient.setQueryData(firewallKeys.vmRules(vmid), latest);
+      return latest;
     },
   };
 }

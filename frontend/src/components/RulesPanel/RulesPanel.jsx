@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { deleteVmRule, updateVmRule } from "../../services/firewall";
 import {
+  isSameRuleAt,
   useFirewallCacheUpdater,
   useVmFirewallOptionsQuery,
   useVmFirewallRulesQuery,
@@ -65,10 +66,28 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
      可能已經不是最新的，等新清單回來才能操作，不然會改到或刪到別條規則 */
   const rulesRefreshing = rulesQuery.isFetching;
 
+  /* 面板不輪詢，開著的時候別人可能在前面插了規則：送出前向後端抓最新清單再對一次位置（不看快取，
+     快取就是畫面上這份），位置變了或抓不到都不送。回傳能不能送出 */
+  async function confirmRuleUnchanged(rule) {
+    let latest;
+    try {
+      latest = await firewallCache.fetchLatestVmRules(node.vmid);
+    } catch {
+      toast.error(t("RulesPanel.verifyFailed"));
+      return false;
+    }
+    if (!isSameRuleAt(latest, rule)) {
+      toast.error(t("RulesPanel.rulesChanged"));
+      return false;
+    }
+    return true;
+  }
+
   async function handleToggle(rule) {
-    if (rulesRefreshing) return;
+    if (rulesRefreshing || busy) return;
     setBusy(true);
     try {
+      if (!(await confirmRuleUnchanged(rule))) return;
       await updateVmRule(node.vmid, rule.pos, { enable: rule.enable === 0 ? 1 : 0 });
       await reload();
     } catch (err) {
@@ -85,15 +104,10 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
       danger: true,
     });
     if (!ok) return;
-    /* 確認視窗開著時清單可能已重抓（切回視窗、別人改了規則），同一個位置已不是同一條：按下確認時再對一次 */
-    const latest = firewallCache.getVmRules(node.vmid) ?? [];
-    const current = latest.find((item) => item.pos === rule.pos);
-    if (!current || JSON.stringify(current) !== JSON.stringify(rule)) {
-      toast.error(t("RulesPanel.rulesChanged"));
-      return;
-    }
     setBusy(true);
     try {
+      /* 確認視窗可能開了很久：按下確認後才去抓最新清單比對 */
+      if (!(await confirmRuleUnchanged(rule))) return;
       await deleteVmRule(node.vmid, rule.pos);
       toast.success(t("RulesPanel.ruleDeleted"));
       await reload();

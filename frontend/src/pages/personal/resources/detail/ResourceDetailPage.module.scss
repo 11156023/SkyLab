@@ -99,6 +99,14 @@
   color: var(--color-text-primary);
 }
 
+/* 標題旁帶狀態徽章（例如防火牆卡的「更新失敗」）：徽章跟標題垂直置中，窄螢幕可換行 */
+.cardTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
 .cardDesc {
   margin-top: 2px;
   font-size: $font-size-12;

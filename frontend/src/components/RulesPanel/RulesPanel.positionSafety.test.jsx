@@ -114,7 +114,7 @@ test("a rule list that changed while the delete confirmation was open does not d
   await act(async () => { deleteButtons()[1].click(); });
 
   /* 這時清單重抓回來：#1 變成 ssh */
-  fw.getVmRules.mockResolvedValueOnce(SHIFTED);
+  fw.getVmRules.mockResolvedValue(SHIFTED);
   await act(async () => { await client.refetchQueries({ queryKey: firewallKeys.vmRules(101) }); });
   await flush();
 
@@ -123,6 +123,38 @@ test("a rule list that changed while the delete confirmation was open does not d
 
   expect(fw.deleteVmRule).not.toHaveBeenCalled();
   expect(toast.error).toHaveBeenCalledWith("RulesPanel.rulesChanged");
+});
+
+test("a shift the panel never saw (it does not poll) still blocks the delete and the toggle", async () => {
+  fw.getVmRules.mockResolvedValueOnce([SSH, WEB]);
+  await renderPanel();
+  await flush();
+
+  /* 面板開著的時候別人在前面插了一條受管規則，畫面上還是舊的兩條 */
+  fw.getVmRules.mockResolvedValue(SHIFTED);
+  await act(async () => { deleteButtons()[1].click(); });
+  await flush();
+  expect(fw.deleteVmRule).not.toHaveBeenCalled();
+  expect(toast.error).toHaveBeenLastCalledWith("RulesPanel.rulesChanged");
+
+  /* 抓到的最新清單已換上畫面：舊的 #1（web）現在在 #2，照新位置操作才會送出 */
+  fw.updateVmRule.mockResolvedValue({});
+  await act(async () => { switches()[1].click(); });
+  await flush();
+  expect(fw.updateVmRule).toHaveBeenCalledWith(101, 2, { enable: 0 });
+});
+
+test("when the latest list cannot be fetched nothing is sent", async () => {
+  fw.getVmRules.mockResolvedValueOnce([SSH, WEB]);
+  await renderPanel();
+  await flush();
+
+  fw.getVmRules.mockRejectedValueOnce(new Error("pve down"));
+  await act(async () => { switches()[0].click(); });
+  await flush();
+
+  expect(fw.updateVmRule).not.toHaveBeenCalled();
+  expect(toast.error).toHaveBeenCalledWith("RulesPanel.verifyFailed");
 });
 
 test("the delete still goes through when the list did not change", async () => {

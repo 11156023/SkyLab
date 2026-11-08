@@ -8,9 +8,13 @@
  * 點連線開連線內容面板（疊在圖上）看開放內容或刪除。
  * 權限：沒有這台的管理權（學生的課堂機）整張圖只能看；另一端是別人的機器時那條線不能刪、
  * 也不能再往它拉線（連線要同時寫兩端的規則）。
+ *
+ * 自動刷新：規則、選項、迷你拓撲每 30 秒背景重抓（切回視窗也會）。背景重抓失敗時沿用畫面上的資料，
+ * 標題旁標「更新失敗」（滑過看是幾點的資料），同一串失敗只跳一次 toast；停用／刪除規則前一律向後端
+ * 抓最新清單比對位置，不靠畫面上可能已經過時的那份。
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "../ResourceDetailPage.module.scss";
@@ -28,15 +32,21 @@ import ConnectionDetailPanel from "../../../../network/firewall/ConnectionDetail
 import { GATEWAY_KEY, portLabel } from "../../../../network/firewall/utils/buildFlow";
 import { canManageNode, toDialogNodes } from "../../../../../components/ConnectionDialog/topologyNodes";
 import {
+  isSameRuleAt,
   useFirewallCacheUpdater,
   useVmFirewallOptionsQuery,
   useVmFirewallRulesQuery,
   useVmFirewallTopologyQuery,
 } from "../../../../../queries/firewall";
-import { useQueryErrorEffect } from "../../../../../queries/resourceDetail";
+import { LIST_REFRESH_INTERVAL } from "../../../../../queries/queryClient";
+import { useLoadError } from "../../../../../hooks/useQueryLoadState";
+import { formatTime } from "../../../../../utils/formatDate";
 import MiniTopology from "./MiniTopology";
 
 const EMPTY = Object.freeze([]);
+
+/* 背景每 30 秒刷新、切回視窗也重抓（別人在拓撲頁改了連線，這裡跟著更新）；分頁隱藏時全站預設會暫停 */
+const AUTO_REFRESH = Object.freeze({ refetchInterval: LIST_REFRESH_INTERVAL, refetchOnWindowFocus: true });
 
 const POLICY_LABEL_KEYS = {
   ACCEPT: "FirewallCard.policyAccept",
@@ -244,24 +254,59 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   /* 刪除連線進行中：確認後又被按第二次不會送出兩筆 */
   const deletingEdgeRef = useRef(false);
 
-  /* 迷你拓撲與防火牆選項查不到就不顯示；規則表查不到時提示，已有清單沿用、從沒載到就是空的 */
-  const topologyQuery = useVmFirewallTopologyQuery(vmid);
-  const rulesQuery = useVmFirewallRulesQuery(vmid);
-  const optionsQuery = useVmFirewallOptionsQuery(vmid);
-  useQueryErrorEffect(rulesQuery, (err) => {
-    toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-  });
-  const topology = topologyQuery.isError ? null : topologyQuery.data ?? null;
+  /* 迷你拓撲與防火牆選項從沒載到就不顯示；規則表從沒載到時提示、清單是空的 */
+  const topologyQuery = useVmFirewallTopologyQuery(vmid, AUTO_REFRESH);
+  const rulesQuery = useVmFirewallRulesQuery(vmid, AUTO_REFRESH);
+  const optionsQuery = useVmFirewallOptionsQuery(vmid, AUTO_REFRESH);
+  /* 背景刷新失敗時沿用畫面上的資料（不把圖收掉），改在標題旁標「更新失敗」 */
+  const topology = topologyQuery.data ?? null;
   const rules = rulesQuery.data ?? EMPTY;
-  const options = optionsQuery.isError ? null : optionsQuery.data ?? null;
+  const options = optionsQuery.data ?? null;
+  /* 首載失敗看 useLoadError：沒資料時 v5 每次重抓都清掉 isError，直接看它會在每 30 秒重試時閃回轉圈圈 */
+  const topologyLoadError = useLoadError(topologyQuery).error;
+  const rulesLoadError = useLoadError(rulesQuery).error;
+  const optionsLoadError = useLoadError(optionsQuery).error;
   /* 三個都第一次載完（成功或失敗）才畫內容；之後的重抓沿用舊資料，不再閃轉圈圈 */
-  const firstLoading = (q) => q.data === undefined && !q.isError && (q.isPending || q.isFetching);
-  const loading = firstLoading(topologyQuery) || firstLoading(rulesQuery) || firstLoading(optionsQuery);
+  const firstLoading = (q, loadError) => q.data === undefined && !loadError && (q.isPending || q.isFetching);
+  const loading = firstLoading(topologyQuery, topologyLoadError)
+    || firstLoading(rulesQuery, rulesLoadError)
+    || firstLoading(optionsQuery, optionsLoadError);
+
+  /* 已有資料、最近一次重抓失敗的查詢（有資料時 v5 重抓期間不清 error，持續失敗時標記不會閃） */
+  const staleQueries = [topologyQuery, rulesQuery, optionsQuery].filter((q) => q.data !== undefined && q.isError);
+  const refreshFailed = staleQueries.length > 0;
+  /* 畫面上最舊的那份資料是幾點抓到的 */
+  const staleSince = refreshFailed ? Math.min(...staleQueries.map((q) => q.dataUpdatedAt)) : 0;
+  /* 同一串失敗只提示一次：effect 依賴訊息字串，持續失敗時字串不變；成功過一次（變回 null）再失敗才再提示。
+     迷你拓撲、選項從沒載到時照舊不提示（不顯示就好），規則表從沒載到才提示 */
+  const failureToast = refreshFailed
+    ? t("FirewallCard.refreshFailedToast")
+    : rulesLoadError
+      ? (rulesLoadError.message ?? t("Error.generic", { ns: "common" }))
+      : null;
+  useEffect(() => {
+    if (failureToast) toast.error(failureToast);
+  }, [failureToast, toast]);
+
   /* 規則、選項、迷你拓撲一起重抓（在途的舊請求會被取消） */
   const load = () => firewallCache.invalidateVm(vmid);
-  /* 停用／刪除是用規則的位置（pos）指定的：清單重抓中畫面上的位置可能已經位移（例如剛建了連線、
-     受管規則插在前面），等新清單回來才能操作，不然會改到或刪到別條規則 */
-  const rulesRefreshing = rulesQuery.isFetching;
+
+  /* 停用／刪除是用規則的位置（pos）指定的：送出前向後端抓最新清單再對一次，位置變了（別人在前面插了規則、
+     這邊背景刷新又剛好失敗）就不送，不然會改到或刪到別條。抓不到也不送。回傳能不能送出 */
+  async function confirmRuleUnchanged(rule) {
+    let latest;
+    try {
+      latest = await firewallCache.fetchLatestVmRules(vmid);
+    } catch {
+      toast.error(t("FirewallCard.verifyFailed"));
+      return false;
+    }
+    if (!isSameRuleAt(latest, rule)) {
+      toast.error(t("FirewallCard.rulesChanged"));
+      return false;
+    }
+    return true;
+  }
 
   const thisVmName = topology?.nodes?.find((n) => n.vmid === vmid)?.name;
 
@@ -346,9 +391,10 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   }
 
   async function handleToggle(rule) {
-    if (rulesRefreshing) return;
+    if (busy) return;
     setBusy(true);
     try {
+      if (!(await confirmRuleUnchanged(rule))) return;
       await updateVmRule(vmid, rule.pos, { enable: rule.enable === 0 ? 1 : 0 });
       await load();
     } catch (err) {
@@ -359,21 +405,17 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   }
 
   async function handleDelete(rule) {
+    if (busy) return;
     const ok = await confirm({
       title: t("FirewallCard.deleteRuleTitle"),
       message: t("FirewallCard.deleteRuleMessage", { pos: rule.pos + 1 }),
       danger: true,
     });
     if (!ok) return;
-    /* 確認視窗開著時清單可能已重抓，同一個位置已不是同一條：按下確認時再對一次 */
-    const latest = firewallCache.getVmRules(vmid) ?? [];
-    const current = latest.find((item) => item.pos === rule.pos);
-    if (!current || JSON.stringify(current) !== JSON.stringify(rule)) {
-      toast.error(t("FirewallCard.rulesChanged"));
-      return;
-    }
     setBusy(true);
     try {
+      /* 確認視窗可能開了很久：按下確認後才去抓最新清單比對 */
+      if (!(await confirmRuleUnchanged(rule))) return;
       await deleteVmRule(vmid, rule.pos);
       toast.success(t("FirewallCard.ruleDeleted"));
       await load();
@@ -396,11 +438,21 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   return (
     <div className={styles.card}>
       <div className={styles.cardHeader}>
-        <div>
+        <div className={styles.cardTitleRow}>
           <h2 className={styles.cardTitle}>
             <MIcon name="security" size={18} />
             {t("FirewallCard.title")}
           </h2>
+          {/* 背景刷新失敗：畫面沿用舊資料，標出來並說是幾點的；下次刷新成功就消失 */}
+          {refreshFailed && (
+            <span
+              className={`${styles.badge} ${styles.badge_danger}`}
+              title={t("FirewallCard.refreshFailedTitle", { time: formatTime(staleSince) })}
+            >
+              <MIcon name="sync_problem" size={14} />
+              {t("FirewallCard.refreshFailed")}
+            </span>
+          )}
         </div>
         <div className={styles.headerActions}>
           {options && (
@@ -496,7 +548,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                       key={row.id}
                       row={row}
                       rule={row.original}
-                      busy={busy || rulesRefreshing}
+                      busy={busy}
                       showActions={showActionsCol}
                       onToggle={handleToggle}
                       onDelete={handleDelete}
